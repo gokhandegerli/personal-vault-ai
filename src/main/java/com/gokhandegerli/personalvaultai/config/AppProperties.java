@@ -2,7 +2,6 @@ package com.gokhandegerli.personalvaultai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.nio.file.Path;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "app")
@@ -11,7 +10,7 @@ public record AppProperties(
         VectorStore vectorStore) {
 
     public record Rag(
-            Path rootPath,
+            String rootPath,
             int topK,
             int chunkSize,
             List<String> excludedDirs,
@@ -23,7 +22,7 @@ public record AppProperties(
             Chroma chroma,
             Pgvector pgvector) {
 
-        public record Simple(Path file) {
+        public record Simple(String file) {
         }
 
         public record Chroma(String url, String collection) {

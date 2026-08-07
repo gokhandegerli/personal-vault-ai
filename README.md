@@ -131,19 +131,20 @@ Diğer store'lar için:
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=chroma
-mvn spring-boot:run -Dspring-boot.run.profiles=pgvector
+mvn spring-boot:run -Ppgvector -Dspring-boot.run.profiles=pgvector   # pgvector ayrıca Maven profilidir
 ```
 
 ### 4) Vault'u indeksle
 
 ```bash
 curl -X POST http://localhost:8080/api/ingest
-# {"storeType":"SimpleVectorStore","filesRead":142,"chunksWritten":1846,"skipped":[]}
+# {"storeType":"SimpleVectorStore","filesRead":156,"chunksWritten":995,"skipped":[]}
 ```
 
-İndeksleme sırasında her chunk Ollama ile embedding'e çevrilir — CPU'da birkaç dakika sürebilir.
-`simple` profilde sonuç `data/simple-vector-store.json` dosyasına kaydedilir; yeniden başlatınca
-otomatik yüklenir (tekrar indekslemene gerek yok).
+İndeksleme sırasında her chunk Ollama ile embedding'e çevrilir — CPU'da tek bir full-ingest
+~10-12 dk sürer (vault ~360K token, ~1000 chunk). `simple` profilde sonuç
+`data/simple-vector-store.json` dosyasına kaydedilir; yeniden başlatınca otomatik yüklenir
+(tekrar indekslemene gerek yok).
 
 ### 5) Soru sor
 

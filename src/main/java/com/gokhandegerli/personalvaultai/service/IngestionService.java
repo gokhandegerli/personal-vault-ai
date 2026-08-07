@@ -3,9 +3,6 @@ package com.gokhandegerli.personalvaultai.service;
 import com.gokhandegerli.personalvaultai.config.AppProperties;
 import com.gokhandegerli.personalvaultai.dto.IngestResponse;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.document.DocumentReader;
-import org.springframework.ai.reader.markdown.MarkdownDocumentReader;
-import org.springframework.ai.reader.markdown.config.MarkdownDocumentReaderConfig;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
@@ -94,22 +91,26 @@ public class IngestionService {
 
     private List<Document> readFile(Path file, Path root) {
         String source = rel(root, file);
-        var resource = new FileSystemResource(file);
-        DocumentReader reader;
         if ("docx".equals(extension(file))) {
-            reader = new TikaDocumentReader(resource);
-        } else {
-            reader = new MarkdownDocumentReader(resource,
-                    MarkdownDocumentReaderConfig.builder()
-                            .withAdditionalMetadata("source", source)
-                            .build());
+            return new TikaDocumentReader(new FileSystemResource(file)).read();
         }
-        return reader.read();
+        try {
+            String text = Files.readString(file);
+            if (text.isBlank()) {
+                return List.of();
+            }
+            return List.of(Document.builder()
+                    .text(text)
+                    .metadata("source", source)
+                    .build());
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read " + source, e);
+        }
     }
 
     private void persistIfSimpleStore() {
         if (vectorStore instanceof SimpleVectorStore simple) {
-            Path file = props.vectorStore().simple().file();
+            Path file = Path.of(props.vectorStore().simple().file());
             try {
                 Files.createDirectories(file.getParent());
                 simple.save(file.toFile());
@@ -120,7 +121,7 @@ public class IngestionService {
     }
 
     private Path resolveRoot() {
-        Path path = props.rag().rootPath();
+        Path path = Path.of(props.rag().rootPath());
         if (!path.isAbsolute()) {
             path = Path.of("").toAbsolutePath().normalize().resolve(path);
         }
