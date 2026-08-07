@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: personal-vault-ai
+  profiles:
+    # vector store type; override with --spring.profiles.active=chroma|pgvector
+    default: simple
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        model: ${OLLAMA_CHAT_MODEL:qwen2.5:3b}
+        temperature: 0.3
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+    model:
+      chat: ollama
+      embedding: ollama
+
+app:
+  rag:
+    # Absolute or relative path to the markdown vault to index.
+    root-path: ${VAULT_PATH:../.vault}
+    # Number of chunks to retrieve per question.
+    top-k: 6
+    # Target chunk size in tokens before embedding.
+    chunk-size: 400
+    # Directories skipped while walking the vault.
+    excluded-dirs: [.git, .obsidian, .trash, temp, assets]
+    # 0 = index everything; otherwise process at most N files.
+    max-files: 0
+  vector-store:
+    simple:
+      # JSON file used by SimpleVectorStore to persist between restarts.
+      file: data/simple-vector-store.json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    org.springframework.ai: INFO

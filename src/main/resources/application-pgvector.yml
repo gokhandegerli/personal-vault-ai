@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    # Local PGVector container (docker-compose.yml), exposed on :5433 to stay
+    # independent from any other PostgreSQL on the default :5432.
+    url: ${PGVECTOR_URL:jdbc:postgresql://localhost:5433/personal_vault_ai}
+    username: ${PGVECTOR_USER:postgres}
+    password: ${PGVECTOR_PASSWORD:postgres}
+
+app:
+  vector-store:
+    pgvector:
+      # Must match the dimension of the configured Ollama embedding model:
+      #   nomic-embed-text -> 768, mxbai-embed-large -> 1024
+      dimensions: 768

@@ -1,0 +1,6 @@
+app:
+  vector-store:
+    chroma:
+      # Local Chroma container (docker-compose.yml). Docs: ghcr.io/chroma-core/chroma:1.0.0 on :8000
+      url: ${CHROMA_URL:http://localhost:8000}
+      collection: personal-vault

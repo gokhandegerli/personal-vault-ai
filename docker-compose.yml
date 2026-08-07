@@ -1,0 +1,37 @@
+# Infrastructure for personal-vault-ai
+# Runs local vector stores used by the app. Independent from any other
+# compose project (e.g. agentdb): its own network, ports and volumes.
+
+services:
+  chroma:
+    image: ghcr.io/chroma-core/chroma:1.0.0
+    container_name: pva-chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/data
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+
+  pgvector:
+    image: pgvector/pgvector:pg17
+    container_name: pva-pgvector
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: personal_vault_ai
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d personal_vault_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  chroma-data:
+  pgvector-data:
