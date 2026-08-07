@@ -79,7 +79,7 @@ göre cevap vermeye zorlar.
 
 - Kurulumu tek komut; modelin eğitimi ve çıkarımı kendi makinede döner.
 - **Veri makineden çıkmaz** — private vault için ideal.
-- Embedding modeli (`nomic-embed-text`) ve küçük chat modeli (`qwen2.5:3b`) CPU'da rahat çalışır.
+- Embedding modeli (`nomic-embed-text`) CPU'da rahat çalışır; chat modeli varsayılan olarak `qwen2.5:7b` (kalite için), daha hızlı istersen `qwen2.5:3b`'ye düşürebilirsin.
 - Bulut API'ye geçmek istersen yalnızca config değişir (bkz. "Model sağlayıcıyı değiştirmek").
 
 ---
@@ -100,7 +100,7 @@ göre cevap vermeye zorlar.
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Modelleri çek (CPU'da çalışır)
-ollama pull qwen2.5:3b        # chat modeli (küçük ve hızlı)
+ollama pull qwen2.5:7b        # chat modeli (varsayılan; kalite/CPU dengesi)
 ollama pull nomic-embed-text  # embedding modeli (768 boyutlu vektör)
 
 # Servisin ayakta olduğunu kontrol et
@@ -263,7 +263,7 @@ kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değiş
 | `app.rag.excluded-dirs` | `.git,.obsidian,.trash,temp,assets` | Atlanacak klasörler |
 | `app.rag.max-files` | `0` | `0`=hepsi; aksi halde ilk N dosya |
 | `spring.ai.ollama.base-url` | `http://localhost:11434` | Ollama adresi (env: `OLLAMA_BASE_URL`) |
-| `spring.ai.ollama.chat.model` | `qwen2.5:3b` | Chat modeli (env: `OLLAMA_CHAT_MODEL`) |
+| `spring.ai.ollama.chat.model` | `qwen2.5:7b` | Chat modeli (env: `OLLAMA_CHAT_MODEL`) |
 | `spring.ai.ollama.embedding.model` | `nomic-embed-text` | Embedding modeli |
 | `app.vector-store.simple.file` | `data/simple-vector-store.json` | Simple store kalıcılık dosyası |
 | `app.vector-store.chroma.url` | `http://localhost:8000` | Chroma adresi |
@@ -324,7 +324,7 @@ personal-vault-ai/
 
 | Terim | Açıklama |
 |---|---|
-| **LLM** | Büyük dil modeli. Metin üreten sinir ağı (burada Ollama üzerinde `qwen2.5:3b`). |
+| **LLM** | Büyük dil modeli. Metin üreten sinir ağı (burada Ollama üzerinde `qwen2.5:7b`). |
 | **RAG** | Retrieval-Augmented Generation: dış veriden getirilen bağlamla cevap üretme. |
 | **Embedding** | Metni anlamsal vektöre çevirme; benzer anlam = benzer vektör yönü. |
 | **Vector store** | Vektörleri ve metinlerini saklayan, "en yakın" vektörü arayan veri deposu. |
