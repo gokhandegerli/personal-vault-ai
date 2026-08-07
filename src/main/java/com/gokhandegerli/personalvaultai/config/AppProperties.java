@@ -7,7 +7,8 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app")
 public record AppProperties(
         Rag rag,
-        VectorStore vectorStore) {
+        VectorStore vectorStore,
+        Correction correction) {
 
     public record Rag(
             String rootPath,
@@ -15,6 +16,11 @@ public record AppProperties(
             int chunkSize,
             List<String> excludedDirs,
             int maxFiles) {
+    }
+
+    public record Correction(
+            String file,
+            String storeFile) {
     }
 
     public record VectorStore(

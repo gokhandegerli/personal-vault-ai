@@ -34,6 +34,12 @@ app:
       # JSON file used by SimpleVectorStore to persist between restarts.
       file: data/simple-vector-store.json
 
+  correction:
+    # User-supplied corrected answers, kept separate from the vault.
+    # file = plain-text log; store-file = vector store used for retrieval.
+    file: data/corrections.log
+    store-file: data/corrections-vector-store.json
+
 management:
   endpoints:
     web:

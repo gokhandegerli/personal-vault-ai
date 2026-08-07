@@ -1,8 +1,9 @@
 # personal-vault-ai
 
-Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen, **tamamen local çalışan** bir
-**RAG (Retrieval-Augmented Generation)** chatbot'u. Spring AI 2.0 + Ollama + Spring Boot 4 üzerine kurulu;
-üç farklı vector store arasında tek profil değiştirerek geçiş yapabilirsin.
+Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen bir
+**RAG (Retrieval-Augmented Generation)** chatbot'u. Spring AI 2.0 + Spring Boot 4 üzerine kurulu;
+chat modeli isteğe bağlı olarak **OpenCode Zen (ücretsiz, örn. `big-pickle`)** veya Ollama ile çalışır,
+embedding her zaman local Ollama'da kalır; üç farklı vector store arasında tek profil değiştirerek geçiş yapabilirsin.
 
 > Kısaca: `.vault` içindeki markdown notlarına soru sor. Cevap, yalnızca o notlardan çekilen
 > bilgiye dayanır — model kendi eğitim verisinden değil, **senin dokümanlarından** konuşur.
@@ -63,7 +64,7 @@ göre cevap vermeye zorlar.
 | Model "uydurur" (hallucination) | Cevap yalnızca getirilen bağlama dayanır; bağlam yoksa "bilmiyorum" der |
 | Modeli yeniden eğitmek çok pahalı | RAG eğitim gerektirmez; bilgiyi depolama tarafında tutar |
 | Notlar sürekli değişir | `POST /api/ingest` ile saniyeler içinde yeniden indekslenir |
-| Verinin dışarı çıkması istenmez | Ollama ile LLM ve embedding tamamen local çalışır, internet gerekmez |
+| Verinin dışarı çıkması istenmez | Varsayılan (`simple`) profilde Ollama ile chat + embedding tamamen local çalışır; `zen` profilde yalnızca soru+bağlam buluta (OpenCode Zen) gider |
 | "LLM'e soru sor" yerine "belgemden soru sor" | Gizlilik + doğruluk: kaynaklar gösterilir, doğrulanabilir |
 
 ### Neden Spring AI?
@@ -75,12 +76,12 @@ göre cevap vermeye zorlar.
 - `ChatClient`, `QuestionAnswerAdvisor`, ETL (`DocumentReader`/`Transformer`/`Writer`) gibi RAG
   bileşenleri hazır gelir.
 
-### Neden Ollama (local model)?
+### Neden Ollama (local embedding)?
 
-- Kurulumu tek komut; modelin eğitimi ve çıkarımı kendi makinede döner.
-- **Veri makineden çıkmaz** — private vault için ideal.
-- Embedding modeli (`nomic-embed-text`) CPU'da rahat çalışır; chat modeli varsayılan olarak `qwen2.5:7b` (kalite için), daha hızlı istersen `qwen2.5:3b`'ye düşürebilirsin.
-- Bulut API'ye geçmek istersen yalnızca config değişir (bkz. "Model sağlayıcıyı değiştirmek").
+- Embedding modeli (`nomic-embed-text`) CPU'da rahat çalışır; embedding vektörleri local'de üretilir.
+- Chat modeli varsayılan olarak Ollama'da `qwen2.5:7b` ile çalışır; **`zen` profili** ile chat
+  OpenCode Zen'e (ücretsiz `big-pickle`) taşınır — kod değişmez, yalnızca config/profile değişir.
+- Tamamen buluta geçmek istersen yalnızca config değişir (bkz. "Model sağlayıcıyı değiştirmek").
 
 ---
 
@@ -91,7 +92,7 @@ göre cevap vermeye zorlar.
 - **Java 25** (sdkman: `sdk install java 25.0.3-tem`)
 - **Maven 3.9+**
 - **Docker + docker-compose** (chroma ve pgvector profilleri için)
-- **Ollama** (chat + embedding model)
+- **Ollama** (embedding model; chat isteğe bağlı — `zen` profili chat için Ollama gerektirmez)
 
 ### 1) Ollama'yı kur ve modelleri indir
 
@@ -99,9 +100,12 @@ göre cevap vermeye zorlar.
 # Linux/macOS: tek komut (sistem yöneticisi şifresi ister)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Modelleri çek (CPU'da çalışır)
-ollama pull qwen2.5:7b        # chat modeli (varsayılan; kalite/CPU dengesi)
+# Modelleri çek (embedding; CPU'da çalışır)
 ollama pull nomic-embed-text  # embedding modeli (768 boyutlu vektör)
+
+# Chat modeli — varsayılan (local) profil için:
+ollama pull qwen2.5:7b
+# `zen` profili chat için Ollama kullanmaz; embedding için yukarıdaki model yeterli.
 
 # Servisin ayakta olduğunu kontrol et
 ollama list
@@ -177,8 +181,30 @@ curl -N -X POST http://localhost:8080/api/chat/stream \
 
 ```bash
 curl http://localhost:8080/api/stores
-# {"storeType":"SimpleVectorStore","filesRead":142,"chunksWritten":1846}
+# {"storeType":"SimpleVectorStore","filesRead":156,"chunksWritten":995}
 ```
+
+### 7) Feedback ile cevap düzelt (self-improvement)
+
+Yanlış/eksik cevap alırsan düzeltmesini gönder; sistem bunu vault'tan **ayrı** bir
+correction store'a kaydeder ve sonraki sorularda onu da context'e katar.
+
+```bash
+curl -X POST http://localhost:8080/api/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question": "SOLID prensipleri nelerdir?",
+    "answer": "eksik cevap",
+    "helpful": false,
+    "correctedAnswer": "SOLID: S - Single Responsibility, O - Open/Closed, ..."
+  }'
+# {"storedCorrections":1}
+```
+
+- `correctedAnswer` boşsa veya `helpful: true` ise kayıt edilmez (sadece count döner).
+- Corrections `data/corrections.log` (metin log) + `data/corrections-vector-store.json`
+  (vektör) olarak tutulur; `.vault` asla değişmez.
+- Kaynaklar listesinde `correction:<soru>` şeklinde görünür.
 
 ---
 
@@ -186,11 +212,11 @@ curl http://localhost:8080/api/stores
 
 ```
 ┌─────────────────────────────── ETL (ingest) ───────────────────────────────┐
-│  .vault/*.md  ──►  MarkdownDocumentReader (extract)                        │
-│  .vault/*.docx ─►  TikaDocumentReader                                      │
+│  .vault/*.md   ──►  ham metin (tek Document/dosya)                          │
+│  .vault/*.docx ──►  TikaDocumentReader                                      │
 │                        │                                                   │
 │                        ▼                                                   │
-│              TokenTextSplitter (chunk = 400 token)                         │
+│              TokenTextSplitter (chunk = 400 token)                          │
 │                        │                                                   │
 │                        ▼                                                   │
 │              OllamaEmbeddingModel ──► VectorStore (simple|chroma|pgvector) │
@@ -198,10 +224,11 @@ curl http://localhost:8080/api/stores
 
 ┌─────────────────────────────── QUERY ──────────────────────────────────────┐
 │  /api/chat ──► ChatClient                                                  │
-│                  └── QuestionAnswerAdvisor                                 │
+│                  └── CombinedQuestionAnswerAdvisor                          │
 │                        ├── 1) soruyu embed et                              │
-│                        ├── 2) topK=6 benzer chunk'ı store'dan getir        │
-│                        └── 3) system prompt + chunk'lar + soru → LLM        │
+│                        ├── 2) topK=6 chunk'ı vault store'dan getir          │
+│                        ├── 3) topK=6 chunk'ı correction store'dan getir     │
+│                        └── 4) system prompt + chunk'lar + soru → LLM        │
 │  Cevap + kaynak dosyalar (RETRIEVED_DOCUMENTS)                             │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -210,10 +237,11 @@ curl http://localhost:8080/api/stores
 
 | Katman | Spring AI bileşeni | Dosya |
 |---|---|---|
-| Chat client | `ChatClient` + `QuestionAnswerAdvisor` | `config/ChatConfig.java` |
-| ETL | `MarkdownDocumentReader`, `TikaDocumentReader`, `TokenTextSplitter` | `service/IngestionService.java` |
+| Chat client | `ChatClient` + `CombinedQuestionAnswerAdvisor` | `config/ChatConfig.java`, `advisor/CombinedQuestionAnswerAdvisor.java` |
+| ETL | raw metin okuma + `TikaDocumentReader`, `TokenTextSplitter` | `service/IngestionService.java` |
+| Feedback | kullanıcı düzeltmeleri → ayrı vector store | `service/CorrectionService.java` |
 | Embedding | `OllamaEmbeddingModel` (otomatik yapılandırılır) | `application.yml` |
-| Vector store | `VectorStore` (profil bazlı bean) | `config/VectorStoreConfig.java` |
+| Vector store | `VectorStore` (profil bazlı bean) + corrections store | `config/VectorStoreConfig.java` |
 | API | REST controller | `web/AiController.java` |
 
 ---
@@ -263,8 +291,10 @@ kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değiş
 | `app.rag.excluded-dirs` | `.git,.obsidian,.trash,temp,assets` | Atlanacak klasörler |
 | `app.rag.max-files` | `0` | `0`=hepsi; aksi halde ilk N dosya |
 | `spring.ai.ollama.base-url` | `http://localhost:11434` | Ollama adresi (env: `OLLAMA_BASE_URL`) |
-| `spring.ai.ollama.chat.model` | `qwen2.5:7b` | Chat modeli (env: `OLLAMA_CHAT_MODEL`) |
+| `spring.ai.ollama.chat.model` | `qwen2.5:7b` | Chat modeli (env: `OLLAMA_CHAT_MODEL`; yalnız `simple` profili) |
 | `spring.ai.ollama.embedding.model` | `nomic-embed-text` | Embedding modeli |
+| `spring.ai.openai.base-url` | `https://opencode.ai/zen/v1` | Zen endpoint (yalnız `zen` profili; env: `ZEN_BASE_URL`) |
+| `spring.ai.openai.chat.options.model` | `big-pickle` | Zen chat modeli (yalnız `zen` profili; env: `ZEN_CHAT_MODEL`) |
 | `app.vector-store.simple.file` | `data/simple-vector-store.json` | Simple store kalıcılık dosyası |
 | `app.vector-store.chroma.url` | `http://localhost:8000` | Chroma adresi |
 | `app.vector-store.chroma.collection` | `personal-vault` | Chroma koleksiyonu |
@@ -290,6 +320,37 @@ spring:
 `spring.ai.model.chat` / `spring.ai.model.embedding` ayarı sağlayıcıyı seçer; uygulama kodu değişmez.
 > `pgvector` kullanıyorsan embedding boyutunu `text-embedding-3-small` (1536) ile güncelle.
 
+### Zen profili (OpenCode ücretsiz chat modelleri)
+
+`application-zen.yml` chat modelini OpenCode Zen'e bağlar (API key gerekmez), embedding **local Ollama'da
+kalır** (vektörler yeniden index'lenmez):
+
+```yaml
+spring:
+  ai:
+    model:
+      chat: openai      # Zen (OpenAI-compatible)
+      embedding: ollama # local kalır
+    openai:
+      api-key: ""       # Zen ücretsiz modeller key istemez
+      base-url: https://opencode.ai/zen/v1
+      chat:
+        options:
+          model: big-pickle   # ücretsiz; env: ZEN_CHAT_MODEL
+    ollama:
+      embedding:
+        model: nomic-embed-text
+```
+
+```bash
+# vector store profili ile birlikte aktifleştir
+mvn spring-boot:run -Dspring-boot.run.profiles=simple,zen
+```
+
+Ücretsiz Zen modelleri: `big-pickle`, `deepseek-v4-flash-free`, `mimo-v2.5-free`, `nemotron-3-ultra-free` vb.
+> Not: Zen ücretsiz modeller veriyi iyileştirme amaçlı kullanabilir — private veri için varsayılan
+> (`simple`) profil (Ollama) önerilir.
+
 ---
 
 ## Klasör Yapısı
@@ -314,6 +375,7 @@ personal-vault-ai/
     │       └── AiController.java      # REST API
     └── resources/
         ├── application.yml            # simple profil (varsayılan)
+        ├── application-zen.yml        # chat → OpenCode Zen (embedding local)
         ├── application-chroma.yml
         └── application-pgvector.yml
 ```
@@ -324,7 +386,7 @@ personal-vault-ai/
 
 | Terim | Açıklama |
 |---|---|
-| **LLM** | Büyük dil modeli. Metin üreten sinir ağı (burada Ollama üzerinde `qwen2.5:7b`). |
+| **LLM** | Büyük dil modeli. Metin üreten sinir ağı (varsayılan profilde Ollama `qwen2.5:7b`, `zen` profilde OpenCode Zen `big-pickle`). |
 | **RAG** | Retrieval-Augmented Generation: dış veriden getirilen bağlamla cevap üretme. |
 | **Embedding** | Metni anlamsal vektöre çevirme; benzer anlam = benzer vektör yönü. |
 | **Vector store** | Vektörleri ve metinlerini saklayan, "en yakın" vektörü arayan veri deposu. |

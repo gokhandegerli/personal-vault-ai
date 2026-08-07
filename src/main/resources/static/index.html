@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Vault AI</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #f5f6f8; --card: #fff; --border: #e3e6ea;
+            --text: #1a1d21; --muted: #6b7280;
+            --accent: #2563eb; --accent-dark: #1d4ed8;
+            --user: #2563eb; --user-text: #fff; --ai: #f0f2f5;
+            --good: #16a34a; --bad: #dc2626;
+            --hover: #f0f2f5; --source-bg: #eef2ff; --source-text: #3730a3;
+            --input-bg: #fff; --toast-bg: #111827; --toast-text: #fff;
+        }
+        html[data-theme="dark"] {
+            --bg: #0f1115; --card: #1a1d23; --border: #2a2f3a;
+            --text: #e6e8eb; --muted: #9aa3b2;
+            --accent: #3b82f6; --accent-dark: #2563eb;
+            --user: #2563eb; --user-text: #fff; --ai: #232830;
+            --good: #22c55e; --bad: #ef4444;
+            --hover: #262c36; --source-bg: #1e293b; --source-text: #93c5fd;
+            --input-bg: #14171d; --toast-bg: #f3f4f6; --toast-text: #111827;
+        }
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: var(--bg); color: var(--text); height: 100vh;
+        }
+        #app {
+            display: flex; flex-direction: column; height: 100vh;
+        }
+        header {
+            padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+        }
+        header h1 { font-size: 17px; font-weight: 650; }
+        header .sub { font-size: 12px; color: var(--muted); margin-left: 4px; }
+        header .spacer { flex: 1; }
+        header button {
+            border: 1px solid var(--border); background: var(--card); color: var(--text);
+            padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+        }
+        header button:hover { background: var(--hover); }
+        header .badge {
+            font-size: 12px; padding: 4px 10px; border-radius: 999px;
+            background: var(--source-bg); color: var(--source-text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
+        }
+        #chat {
+            flex: 1; overflow-y: auto; padding: 20px; display: flex;
+            flex-direction: column; gap: 16px; max-width: 860px; width: 100%;
+            margin: 0 auto;
+        }
+        .msg { display: flex; flex-direction: column; gap: 4px; max-width: 80%; }
+        .msg.user { align-self: flex-end; align-items: flex-end; }
+        .msg.ai { align-self: flex-start; align-items: flex-start; }
+        .bubble {
+            padding: 10px 14px; border-radius: 14px; font-size: 14.5px;
+            line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
+        }
+        .msg.user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
+        .msg.ai .bubble { background: var(--ai); border-bottom-left-radius: 4px; }
+        .bubble.cursor::after { content: "▍"; animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .source {
+            font-size: 11.5px; color: var(--accent); background: var(--source-bg);
+            padding: 3px 8px; border-radius: 6px; cursor: pointer; max-width: 100%;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .source:hover { background: var(--hover); }
+        .feedback { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+        .feedback button {
+            border: 1px solid var(--border); background: var(--card); cursor: pointer;
+            width: 30px; height: 30px; border-radius: 8px; font-size: 14px;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .feedback button.active-good { border-color: var(--good); background: var(--good); opacity: .85; }
+        .feedback button.active-bad { border-color: var(--bad); background: var(--bad); opacity: .85; }
+        .feedback .note { font-size: 12px; color: var(--muted); }
+        .correction { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+        .correction textarea {
+            width: 100%; min-height: 70px; padding: 10px; border: 1px solid var(--border);
+            border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical;
+        }
+        .correction button {
+            align-self: flex-end; background: var(--accent); color: #fff; border: none;
+            padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+        }
+        .correction button:hover { background: var(--accent-dark); }
+        .correction .saved { font-size: 12px; color: var(--good); }
+        .typing { display: inline-flex; gap: 4px; }
+        .typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s infinite; }
+        .typing span:nth-child(2) { animation-delay: .15s; }
+        .typing span:nth-child(3) { animation-delay: .3s; }
+        @keyframes bounce { 0%,100% { opacity: .3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
+        #composer {
+            flex-shrink: 0; padding: 14px 20px; background: var(--card);
+            border-top: 1px solid var(--border); display: flex; gap: 10px;
+            max-width: 860px; width: 100%; margin: 0 auto;
+        }
+        #composer input {
+            flex: 1; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px;
+            font-size: 14.5px; font-family: inherit; outline: none; background: var(--input-bg); color: var(--text);
+        }
+        #composer input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
+        #composer button {
+            background: var(--accent); color: #fff; border: none; border-radius: 10px;
+            padding: 0 22px; font-size: 14.5px; cursor: pointer; font-weight: 600;
+        }
+        #composer button:hover { background: var(--accent-dark); }
+        #composer button:disabled { background: var(--accent); opacity: .5; cursor: not-allowed; }
+        .empty {
+            margin: auto; text-align: center; color: var(--muted); font-size: 14px;
+        }
+        .empty .logo { font-size: 42px; margin-bottom: 10px; }
+        .toast {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: var(--toast-bg); color: var(--toast-text); padding: 10px 18px; border-radius: 10px;
+            font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="app">
+    <header>
+        <h1>🧠 Personal Vault AI</h1>
+        <span class="sub">RAG · vault + corrections</span>
+        <span class="spacer"></span>
+        <button @click="ingest" :disabled="busy.ingest">↻ Re-index</button>
+        <button @click="loadStats" title="Vektör store durumu">📊 Status</button>
+        <span v-if="stats" class="badge">{{ progress || (stats.chunksWritten || 0) + ' chunks' }}</span>
+        <button @click="toggleTheme" :title="dark ? 'Beyaz temaya geç' : 'Koyu temaya geç'">{{ dark ? '🌙' : '☀️' }}</button>
+    </header>
+
+    <div id="chat">
+        <div v-if="!messages.length" class="empty">
+            <div class="logo">🗂️</div>
+            Vault'unuzdaki notlardan soru sorun.<br>
+            Örn: "Saga pattern nedir?" veya "SOLID prensipleri nelerdir?"
+        </div>
+
+        <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+            <div class="bubble" :class="{ cursor: m.typing }">{{ m.text }}</div>
+
+            <template v-if="m.role === 'ai' && m.done">
+                <div v-if="m.sources.length" class="sources">
+                    <span v-for="(s, si) in m.sources" :key="si" class="source" :title="s.file">{{ s.file }}</span>
+                </div>
+                <div class="feedback">
+                    <button :class="{ 'active-good': m.feedback === 'up' }" title="Yararlı"
+                            @click="rate(m, 'up')">👍</button>
+                    <button :class="{ 'active-bad': m.feedback === 'down' }" title="Yanlış/eksik"
+                            @click="rate(m, 'down')">👎</button>
+                    <span v-if="m.feedbackSaved" class="note">kaydedildi ✓</span>
+                </div>
+                <div v-if="m.feedback === 'down' && !m.feedbackSaved" class="correction">
+                    <textarea v-model="m.corrected" placeholder="Doğru cevabı yazın — bir sonraki sorgularda context'e eklenecek..."></textarea>
+                    <button @click="submitCorrection(m)">Düzeltmeyi kaydet</button>
+                </div>
+            </template>
+        </div>
+
+        <div v-if="busy.chat" class="msg ai">
+            <div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>
+        </div>
+    </div>
+
+    <div id="composer">
+        <input v-model="input" placeholder="Vault'unuza soru sorun..."
+               @keydown.enter.prevent="send" :disabled="busy.chat">
+        <button @click="send" :disabled="busy.chat || !input.trim()">Gönder</button>
+    </div>
+
+    <div class="toast" :class="{ show: toast }">{{ toast }}</div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        // file:// ile açıldıysa API'ye mutlak adresle git; sunucudan servis ediliyorsa aynı origin.
+        const API = location.protocol === 'file:'
+            ? 'http://localhost:8080'
+            : '';
+
+        createApp({
+            data() {
+                return {
+                    input: '',
+                    messages: [],
+                    busy: { chat: false, ingest: false },
+                    stats: null,
+                    toast: '',
+                    progress: '',
+                    watchTimer: null,
+                    dark: document.documentElement.getAttribute('data-theme') === 'dark'
+                };
+            },
+            methods: {
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    document.documentElement.setAttribute('data-theme', this.dark ? 'dark' : 'light');
+                    try { localStorage.setItem('pva-theme', this.dark ? 'dark' : 'light'); } catch (e) {}
+                },
+                initTheme() {
+                    let t = null;
+                    try { t = localStorage.getItem('pva-theme'); } catch (e) {}
+                    if (!t) t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                    this.dark = t === 'dark';
+                    document.documentElement.setAttribute('data-theme', this.dark ? 'dark' : 'light');
+                },
+                async send() {
+                    const q = this.input.trim();
+                    if (!q || this.busy.chat) return;
+                    this.input = '';
+                    this.messages.push({ role: 'user', text: q });
+                    const msg = { role: 'ai', text: '', done: false, typing: true, sources: [], feedback: null, feedbackSaved: false, corrected: '', answer: '' };
+                    this.messages.push(msg);
+                    this.busy.chat = true;
+                    try {
+                        const res = await fetch(API + '/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: q })
+                        });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        const data = await res.json();
+                        msg.answer = data.answer || '';
+                        msg.text = msg.answer;
+                        msg.sources = (data.sources || []).map(s => ({
+                            file: s.file || s.source || 'unknown',
+                            excerpt: s.excerpt || ''
+                        }));
+                        msg.done = true;
+                        msg.typing = false;
+                    } catch (e) {
+                        msg.text = '⚠️ Hata: ' + e.message;
+                        msg.done = true;
+                        msg.typing = false;
+                    } finally {
+                        this.busy.chat = false;
+                        this.scrollBottom();
+                    }
+                },
+                rate(m, v) {
+                    if (m.feedback === v) { m.feedback = null; return; }
+                    m.feedback = v;
+                    if (v === 'up') this.saveFeedback(m);
+                },
+                async submitCorrection(m) {
+                    if (!m.corrected.trim()) return;
+                    await this.saveFeedback(m, m.corrected.trim());
+                },
+                async saveFeedback(m, corrected) {
+                    try {
+                        const body = { question: this.pendingQuestion(m), answer: m.answer, helpful: m.feedback !== 'down' };
+                        if (corrected) body.correctedAnswer = corrected;
+                        const res = await fetch(API + '/api/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body)
+                        });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        m.feedbackSaved = true;
+                        m.corrected = '';
+                        this.showToast('Feedback kaydedildi ✓');
+                    } catch (e) {
+                        this.showToast('Kayıt hatası: ' + e.message);
+                    }
+                },
+                pendingQuestion(m) {
+                    const i = this.messages.indexOf(m);
+                    const user = this.messages.slice(0, i).filter(x => x.role === 'user').pop();
+                    return user ? user.text : '';
+                },
+                async ingest() {
+                    this.busy.ingest = true;
+                    try {
+                        await fetch(API + '/api/ingest', { method: 'POST' });
+                        this.showToast('Index başladı...');
+                        this.pollIngest();
+                    } catch (e) {
+                        this.showToast('Index hatası: ' + e.message);
+                        this.busy.ingest = false;
+                    }
+                },
+                pollIngest() {
+                    const poll = async () => {
+                        await this.loadStats();
+                        if (this.stats && ['reading', 'embedding'].includes(this.stats.state)) {
+                            this.progress = this.progressText();
+                            setTimeout(poll, 1500);
+                        } else {
+                            this.busy.ingest = false;
+                            this.progress = '';
+                            this.showToast('Index tamam: ' + (this.stats ? this.stats.chunksWritten : 0) + ' chunk');
+                        }
+                    };
+                    poll();
+                },
+                progressText() {
+                    if (!this.stats) return 'Index çalışıyor...';
+                    const { state, filesRead, totalFiles, chunksWritten, totalChunks } = this.stats;
+                    if (state === 'embedding') {
+                        return chunksWritten + '/' + (totalChunks || '?') + ' chunk embed...';
+                    }
+                    return filesRead + '/' + totalFiles + ' dosya okunuyor...';
+                },
+                async loadStats() {
+                    try {
+                        const res = await fetch(API + '/api/stores');
+                        this.stats = await res.json();
+                        if (this.stats && ['reading', 'embedding'].includes(this.stats.state)) {
+                            this.progress = this.progressText();
+                        } else if (!this.busy.ingest) {
+                            this.progress = '';
+                        }
+                    } catch (e) { /* ignore */ }
+                },
+                showToast(t) {
+                    this.toast = t;
+                    setTimeout(() => { if (this.toast === t) this.toast = ''; }, 2200);
+                },
+                startWatch() {
+                    if (this.watchTimer) return;
+                    this.watchTimer = setInterval(() => this.loadStats(), 2000);
+                },
+                stopWatch() {
+                    if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+                },
+                scrollBottom() {
+                    const el = document.getElementById('chat');
+                    if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+                }
+            },
+            mounted() {
+                this.initTheme();
+                this.startWatch();
+                this.loadStats();
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

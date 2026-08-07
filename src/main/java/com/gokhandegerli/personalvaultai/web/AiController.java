@@ -2,8 +2,11 @@ package com.gokhandegerli.personalvaultai.web;
 
 import com.gokhandegerli.personalvaultai.dto.ChatRequest;
 import com.gokhandegerli.personalvaultai.dto.ChatResponse;
+import com.gokhandegerli.personalvaultai.dto.FeedbackRequest;
+import com.gokhandegerli.personalvaultai.dto.FeedbackResponse;
 import com.gokhandegerli.personalvaultai.dto.IngestResponse;
 import com.gokhandegerli.personalvaultai.service.ChatService;
+import com.gokhandegerli.personalvaultai.service.CorrectionService;
 import com.gokhandegerli.personalvaultai.service.IngestionService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -22,10 +25,13 @@ public class AiController {
 
     private final IngestionService ingestionService;
     private final ChatService chatService;
+    private final CorrectionService correctionService;
 
-    public AiController(IngestionService ingestionService, ChatService chatService) {
+    public AiController(IngestionService ingestionService, ChatService chatService,
+                        CorrectionService correctionService) {
         this.ingestionService = ingestionService;
         this.chatService = chatService;
+        this.correctionService = correctionService;
     }
 
     @PostMapping("/ingest")
@@ -54,5 +60,14 @@ public class AiController {
     @GetMapping("/stores")
     public Map<String, Object> stores() {
         return ingestionService.stats();
+    }
+
+    @PostMapping("/feedback")
+    public ResponseEntity<FeedbackResponse> feedback(@RequestBody FeedbackRequest request) {
+        if (request.question() == null || request.question().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        long stored = correctionService.add(request);
+        return ResponseEntity.ok(new FeedbackResponse(stored));
     }
 }

@@ -44,10 +44,16 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Local LLM: chat + embedding models -->
+        <!-- Local LLM: embedding model only (chat moved to Zen/cloud) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
+        </dependency>
+
+        <!-- Cloud chat model via OpenCode Zen (OpenAI-compatible) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
         <!-- Vector stores: SimpleVectorStore (no server) + Chroma (Docker). PGVector lives in the `pgvector` Maven profile. -->

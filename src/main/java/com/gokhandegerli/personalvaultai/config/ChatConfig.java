@@ -1,7 +1,8 @@
 package com.gokhandegerli.personalvaultai.config;
 
+import com.gokhandegerli.personalvaultai.advisor.CombinedQuestionAnswerAdvisor;
+import com.gokhandegerli.personalvaultai.service.CorrectionService;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
@@ -22,14 +23,16 @@ public class ChatConfig {
             """;
 
     @Bean
-    ChatClient chatClient(ChatClient.Builder builder, VectorStore vectorStore, AppProperties props) {
+    ChatClient chatClient(ChatClient.Builder builder, VectorStore vectorStore,
+                          CorrectionService correctionService, AppProperties props) {
         return builder
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(QuestionAnswerAdvisor.builder(vectorStore)
-                        .searchRequest(SearchRequest.builder()
+                .defaultAdvisors(new CombinedQuestionAnswerAdvisor(
+                        java.util.List.of(vectorStore, correctionService.store()),
+                        SearchRequest.builder()
                                 .topK(props.rag().topK())
-                                .build())
-                        .build())
+                                .build(),
+                        0))
                 .build();
     }
 }

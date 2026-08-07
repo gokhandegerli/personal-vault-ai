@@ -2,11 +2,14 @@ package com.gokhandegerli.personalvaultai.service;
 
 import com.gokhandegerli.personalvaultai.config.AppProperties;
 import com.gokhandegerli.personalvaultai.dto.IngestResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 
@@ -18,10 +21,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class IngestionService {
+
+    private static final Logger logger = LoggerFactory.getLogger(IngestionService.class);
 
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("md", "markdown", "docx");
 
@@ -30,6 +37,10 @@ public class IngestionService {
     private final TokenTextSplitter splitter;
     private final AtomicInteger filesRead = new AtomicInteger();
     private final AtomicInteger chunksWritten = new AtomicInteger();
+    private final AtomicInteger totalChunks = new AtomicInteger();
+    private final AtomicInteger totalFiles = new AtomicInteger();
+    private final AtomicReference<String> state = new AtomicReference<>("idle");
+    private final AtomicReference<String> currentFile = new AtomicReference<>("");
 
     public IngestionService(VectorStore vectorStore, AppProperties props) {
         this.vectorStore = vectorStore;
@@ -40,40 +51,85 @@ public class IngestionService {
                 .build();
     }
 
-    public IngestResponse ingest() {
-        Path root = resolveRoot();
-        List<Path> files = collectFiles(root);
-        List<Document> documents = new ArrayList<>();
-        List<String> skipped = new ArrayList<>();
-        int processed = 0;
-
-        for (Path file : files) {
-            int max = props.rag().maxFiles();
-            if (max > 0 && processed >= max) {
-                break;
-            }
-            try {
-                documents.addAll(readFile(file, root));
-                processed++;
-            } catch (Exception e) {
-                skipped.add(rel(root, file) + ": " + e.getMessage());
-            }
+    public IngestResponse ingestAsync() {
+        if ("running".equals(state.get())) {
+            return new IngestResponse(storeType(), -1, -1, List.of("ingest zaten çalışıyor"));
         }
+        state.set("running");
+        filesRead.set(0);
+        chunksWritten.set(0);
+        totalChunks.set(0);
+        currentFile.set("");
+        Path root = resolveRoot();
+        totalFiles.set(collectFiles(root).size());
 
-        List<Document> chunks = splitter.apply(documents);
-        vectorStore.write(chunks);
-        persistIfSimpleStore();
+        CompletableFuture.runAsync(() -> runIngest(root));
+        return new IngestResponse(storeType(), 0, 0, List.of());
+    }
 
-        filesRead.set(processed);
-        chunksWritten.set(chunks.size());
-        return new IngestResponse(storeType(), processed, chunks.size(), skipped);
+    private void runIngest(Path root) {
+        try {
+            List<Path> files = collectFiles(root);
+            List<Document> documents = new ArrayList<>();
+            List<String> skipped = new ArrayList<>();
+            int processed = 0;
+
+            state.set("reading");
+            for (Path file : files) {
+                int max = props.rag().maxFiles();
+                if (max > 0 && processed >= max) {
+                    break;
+                }
+                currentFile.set(rel(root, file));
+                try {
+                    documents.addAll(readFile(file, root));
+                    processed++;
+                    filesRead.set(processed);
+                } catch (Exception e) {
+                    skipped.add(rel(root, file) + ": " + e.getMessage());
+                }
+            }
+
+            state.set("embedding");
+            currentFile.set("");
+            List<Document> chunks = splitter.apply(documents);
+            totalChunks.set(chunks.size());
+            clearStore();
+
+            int batchSize = 50;
+            int total = chunks.size();
+            for (int i = 0; i < total; i += batchSize) {
+                List<Document> batch = chunks.subList(i, Math.min(i + batchSize, total));
+                vectorStore.write(batch);
+                chunksWritten.set(Math.min(i + batchSize, total));
+                persistIfSimpleStore();
+                logger.info("Embedded {}/{} chunks", chunksWritten.get(), total);
+            }
+
+            chunksWritten.set(total);
+            filesRead.set(processed);
+            logger.info("Ingest complete: {} files, {} chunks, {} skipped", processed, chunks.size(), skipped.size());
+        } catch (Exception e) {
+            logger.error("Ingest failed", e);
+        } finally {
+            state.set("idle");
+            currentFile.set("");
+        }
+    }
+
+    public IngestResponse ingest() {
+        return ingestAsync();
     }
 
     public Map<String, Object> stats() {
         return Map.of(
                 "storeType", storeType(),
+                "state", state.get(),
                 "filesRead", filesRead.get(),
-                "chunksWritten", chunksWritten.get());
+                "totalFiles", totalFiles.get(),
+                "chunksWritten", chunksWritten.get(),
+                "totalChunks", totalChunks.get(),
+                "currentFile", currentFile.get());
     }
 
     private List<Path> collectFiles(Path root) {
@@ -105,6 +161,14 @@ public class IngestionService {
                     .build());
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read " + source, e);
+        }
+    }
+
+    private void clearStore() {
+        try {
+            vectorStore.delete(new FilterExpressionBuilder().isNotNull("source").build());
+        } catch (Exception e) {
+            logger.warn("Failed to clear existing store before ingest: {}", e.getMessage());
         }
     }
 
