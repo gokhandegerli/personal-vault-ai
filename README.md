@@ -12,15 +12,8 @@ Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen bir
 
 ## Ne? (What)
 
-### RAG nedir?
-
-RAG = **R**etrieval-**A**ugmented **G**eneration (Getir-güçlendir-üret).
-
-Bir LLM (Large Language Model — büyük dil modeli) tek başına yalnızca **eğitildiği veriyi** bilir.
-Senin özel notların, proje dokümanların, iç mimarin o modelin eğitim verisinde yoktur. RAG bu açığı
-kapatır: model çağrısından **önce** kendi veri kaynağında (burada `.vault`) arama yapar, ilgili
-parçaları bulur, bunları modelin prompt'una (bağlam olarak) ekler ve modeli yalnızca o bağlama
-göre cevap vermeye zorlar.
+> RAG, LLM, embedding, vector store ve conversation memory kavramlarının **teorik açıklaması**
+> bu repoda değil, bilgi vault'unda tutulur: `[[08-ai]]` → `[[08-04-rag-nedir]]`.
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -34,126 +27,6 @@ göre cevap vermeye zorlar.
         │                              │
         └────►  Soru + bulunan chunk'lar ──► LLM ──► Cevap
 ```
-
-**Akışın adımları:**
-
-1. **Extract (çıkar):** `.vault` içindeki `.md` / `.docx` dosyaları okunur.
-2. **Transform (dönüştür):** Her dosya **chunk'lara** (küçük parçalara) bölünür ve her chunk bir
-   **embedding**'e (sayı vektörü) çevrilir. Aynı anlamdaki metinler aynı yöne bakan vektörler üretir.
-3. **Load (yükle):** Bu vektörler bir **vector store**'a yazılır.
-4. **Retrieve (getir):** Soru geldiğinde soru da embed edilir, store'da ona en "yakın" `topK` chunk
-   bulunur.
-5. **Augment + Generate (güçlendir + üret):** Bulunan chunk'lar soruyla birlikte LLM'e verilir;
-   LLM yalnızca bu bağlama dayanarak cevap üretir ve hangi dosyadan aldığını (kaynak) geri döner.
-
-### RAG bir yazılım değil, bir akıştır
-
-"RAG" diye kurulacak tek bir program yoktur. RAG, **üç ayrı sorumluluğu** tek bir akışta birleştiren
-bir tekniktir. Karıştırılan ifadeleri şöyle ayrıştırmak faydalı:
-
-| İfade | Ne yapar | Soru 1'deki rolü |
-|---|---|---|
-| **Embedding modeli** | Metni vektöre (sayı dizisine) çevirir | Hazırlıkta chunk'ları, sorguda soruyu vektöre çevirir |
-| **Vector store** | Vektörleri saklar, "en yakın" olanı bulur | Retrieval (getir) adımı |
-| **LLM (chat modeli)** | Metinden metin üretir (cevabı yazar) | Generate (üret) adımı |
-| **Ollama** | Uygulama; **embedding modelini** local'de çalıştırır | Embedding'i üretir (hem hazırlık hem sorguda) |
-| **Zen** | Bulut servis; **chat modelini** (LLM) barındırır | Cevabı üretir |
-| **Spring AI** | Java çatısı; yukarıdaki parçaları birbirine bağlayan kodu verir | Akışı uçtan uca ören iskelet |
-
-**Özet:** RAG = "getir (retrieve) + güçlendir (augment) + üret (generate)". Bu akışta
-embedd olmayı **Ollama**, cevabı yazmayı **Zen**, getirme işini **vector store** yapar; bu parçaları
-birbirine bağlayan kod ise bu projedir.
-
-### RAG olmayan LLM'ler: ChatGPT, Gemini, Abacus
-
-Bu proje **RAG üzerine** kurulu: dış bellek (vector store) her soruda tazelenir. Peki ChatGPT,
-Gemini, Abacus gibi milyarlarca veriyle eğitilmiş online LLM'ler aynı yapıda mı? Hayır — onların
-adı **LLM chatbot / foundation-model sohbet asistanı**dır. Fark veri kaynağındadır:
-
-| | RAG (bu uygulama) | ChatGPT, Gemini, Abacus |
-|---|---|---|
-| Veri kaynağı | **Non-parametric hafıza**: dış bellek (vector store), her soruda taze getirilir | **Parametric hafıza**: bilgi eğitim sırasında milyarlarca ağırlığa gömülür |
-| Arama | Evet (retrieval) | Genelde hayır — doğrudan model üretir |
-| Cevap | Yalnızca dokümanlardan | Yalnızca eğitim verisinden (güncelliği kesilir) |
-| Güncellik | İndekslediğin anda güncel | Eğitim kut tarihiyle sınırlı |
-
-ChatGPT/Gemini "RAG olmadan çalışan LLM" örneğidir: bilgiyi aramaz, eğitimden kalan ağırlıklarından
-tahmin üretir. Bazıları internette gezinme (`web browsing`) özelliği sunar — o, uygulamaya eklenmiş
-basit bir arama/RAG katmanıdır; çekirdek üretim yine parametriktir. Teknik olarak bu modellerin iç
-mimarisi **transformer + autoregressive**'tir (sıradaki token'ı tahmin eder); "kaç milyar parametre"
-denen şey, bilginin saklandığı alanın büyüklüğüdür.
-
-### LLM bu işi nasıl yapıyor? (LLM'e ne gider, o ne yapar?)
-
-LLM'e tek başına "soru" gitmez; gitseydi model yalnızca **kendi eğitim verisiyle** cevap verirdi.
-Gerçekte her istekte LLM'e **3 katmanlı bir prompt** gider:
-
-```
-[SYSTEM]  Sen yalnızca verilen context'e dayanarak cevap veren bir asistansın.
-          Bağlamda cevap yoksa açıkça söyle. Kısa ve doğru ol.
-
-[USER]
-  Soru:    "Saga pattern nedir?"
-  ─────────────────────────────
-  Context (topK=6 chunk — vector store'un bulduğu ilgili parçalar):
-    "…dağıtık sistemlerde uzun işlemleri yönetmek için saga pattern…"
-    "…her adım kendi local transaction'ıdır; biri başarısız olursa…"
-    "…compensation transaction'lar önceki adımları geri alır…"
-  ─────────────────────────────
-  Bu context'e dayanarak yanıtla.
-```
-
-Bu prompt uygulamada iki yerde kurulur: **system prompt** `ChatConfig.java` içinde sabit durur;
-**context + soru** ise `CombinedQuestionAnswerAdvisor` tarafından kullanıcı mesajının içine yazılır.
-
-**Aşamalar kimde?**
-
-| Aşama | Kim yapar | Ne olur |
-|---|---|---|
-| İlgili chunk'ları bulmak | **Vector store** (retrieval) | Soru vektöre çevrilir, en yakın `topK` chunk bulunur |
-| Bulunanları anlamlı cevaba çevirmek | **LLM** (generation) | Verilen tüm metni okur, token token yeni metin üretir |
-| "Bağlam dışına çıkma" kuralı | **System prompt** | Modeli yalnızca verilen context'e zorlar |
-
-**Kritik ayrım:** LLM bilgiyi *aramaz* — arama işini vector store yaptı. LLM, bulunmuş ham
-paragrafları alır, soruya göre yeniden düzenler ve akıcı bir cevap **yazar**. "Anlamlı mesajı"
-LLM çıkarır: kopuk chunk'ların soru etrafında tek akıcı metne dönüştüğü yer orasıdır. Ama bu
-serbestliği sınırlayan yine system prompt'tur — model "bağlamda yoksa bilmiyorum demek" zorundadır,
-bu sayede uydurma (hallucination) azalır.
-
-**System prompt nedir?** LLM'e daha ilk kelimeyi üretmeden önce verilen "görev tanımı + davranış
-kuralları" metnidir. Mesaj geçmişinden bağımsızdır, her istekte en önce gönderilir: "sen kimsin,
-hangi kurallara uyacaksın". Kullanıcı sorularıyla karışmaz; o, modelin zihnini şekillendiren
-prologdur. Yukarıdaki örnekte `[SYSTEM]` satırı tam olarak budur.
-
-### Örnek case: "Stack vs Heap interview" — hangisi LLM, hangisi RAG?
-
-Bu projede "Beni Stack vs Heap konusunda interview yap" diyince gelişen akış, sorumlulukların
-ayrımını net gösterir:
-
-```
-[Kullanıcı] "Stack vs Heap interview yap"
-   │
-   ├─► Retrieval (RAG): soru embed edilir, topK=6 chunk getirilir
-   │      └─ kaynaklar: 01-01-stack-vs-heap.md, 01-03-stackoverflow..., 01-Summary.md
-   │
-   └─► LLM (Big Pickle):
-          "Soru 1: Stack'in temel özellikleri nelerdir?"   ← LLM yazdı
-```
-
-Her turda aynı döngü tekrarlanır — kullanıcı cevap verir, yeni soru gelir:
-
-| Gördüğün davranış | Kim üretiyor |
-|---|---|
-| "Soru 1: ... özellikleri nelerdir?" (yeni soru sorma) | **LLM** |
-| "Cevabın doğru. Ek olarak şunları da söyleyebilirsin: ..." (onaylama + eksik ekleme) | **LLM** |
-| "Soru 2: Peki Heap'in özellikleri nelerdir?" (ilerletme) | **LLM** |
-| Altta listelenen kaynak dosyalar | **RAG** (retrieval) |
-
-**Kural:** **Kutu = LLM, kutunun içindekiler (kaynaklar) = RAG.** Interview akışının tamamı —
-soru sormak, cevabı değerlendirmek, eksikleri eklemek, bir sonraki soruya geçmek — LLM'in yazdığı
-metindir; programlanmış bir state machine değildir. Sistem (RAG) yalnızca her tur için ilgili
-chunk'ları ve önceki konuşmayı (chat memory) LLM'e hazırlar. "Doğru kabul etme" de LLM'in
-yargısıdır ve yanılabilir — bu yüzden kendi sorduğu soruyu unutup çelişebildiğini daha önce gördük.
 
 ### Bu proje ne yapıyor?
 
@@ -415,7 +288,12 @@ kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değiş
 | `POST` | `/api/chat` | `{"message":"..."}` → `{answer, sources[]}` |
 | `POST` | `/api/chat/stream` | Aynı chat, SSE (`text/event-stream`) token akışı |
 | `GET` | `/api/stores` | Aktif store tipi + indeks istatistikleri |
+| `GET` | `/api/conversations` | Konuşma geçmişi listesi (`{id,title,messageCount,updatedAt}`) |
+| `GET` | `/api/conversations/{id}` | Tek konuşmanın mesajları (`messages[]` + her mesajın `sources[]`) |
+| `DELETE` | `/api/conversations/{id}` | Konuşmayı siler |
 | `GET` | `/actuator/health` | Uygulama sağlığı |
+
+Chat isteğinde `sessionId` (`[A-Za-z0-9_-]`, 64 karakter) aynı konuşmayı tanımlar; boş/geçersizse rastgele üretilir. Konuşma geçmişi `data/conversations/{id}.json` dosyalarında saklanır — **vector store'dan bağımsızdır** (simple/chroma/pgvector üçünde de çalışır), LLM'e son 20 mesaj verilir, dosyada tam geçmiş tutulur.
 
 ---
 
@@ -438,6 +316,7 @@ kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değiş
 | `app.vector-store.chroma.url` | `http://localhost:8000` | Chroma adresi |
 | `app.vector-store.chroma.collection` | `personal-vault` | Chroma koleksiyonu |
 | `spring.datasource.*` | localhost:5433/postgres | PGVector bağlantısı (yalnız `pgvector` profili) |
+| `app.conversations.dir` | `data/conversations` | JSON konuşma geçmişi dizini (tüm profillerde ortak) |
 
 ### Model sağlayıcıyı değiştirmek (Ollama → OpenAI)
 
@@ -523,22 +402,9 @@ personal-vault-ai/
 
 ## Terimler Sözlüğü
 
-| Terim | Açıklama |
-|---|---|
-| **LLM** | Büyük dil modeli; metinden metin üretir. Bu projede chat modeli = Zen `big-pickle` (bulut). |
-| **Embedding modeli** | Metni anlamsal vektöre çeviren model (Ollama `nomic-embed-text`, local). Embedding'ten LLM (Zen) sorumlu değildir. |
-| **RAG** | Retrieval-Augmented Generation: dış veriden getirilen bağlamla cevap üretme. |
-| **Embedding** | Metni anlamsal vektöre çevirme; benzer anlam = benzer vektör yönü. |
-| **Vector store** | Vektörleri ve metinlerini saklayan, "en yakın" vektörü arayan veri deposu. |
-| **Chunk** | Dokümanın bölündüğü küçük parça; embedding ve retrieval birimi. |
-| **topK** | Soruya en benzer kaç chunk'ın getirileceği. |
-| **Hallucination** | Modelin veriye dayanmadan uydurması. RAG bunu azaltır. |
-| **System prompt** | LLM'e her istekten önce verilen görev tanımı + davranış kuralları (prolog); kullanıcı sorularından ayrıdır. |
-| **Retrieval** | RAG'ın "getir" adımı: soruyu vektöre çevirip store'da en yakın chunk'ları bulma. |
-| **Spring AI** | Java/Spring için AI uygulama çatısı (modeller, vector store'lar, advisor'lar). |
-| **ChatClient** | Spring AI'nın fluently chat API'si (prompt → call/stream → cevap). |
-| **Advisor** | ChatClient'a takılan ara katman; `QuestionAnswerAdvisor` RAG'i uygular. |
-| **MCP** | Model Context Protocol: LLM'lerin harici araç/veriyle standart protokolle konuşması. Spring AI 2.0'da çekirdeğe taşındı (bu proje henüz kullanmıyor). |
+Terminoloji (LLM, embedding, RAG, chunk, topK, hallucination, system prompt, retrieval, Spring AI,
+ChatClient, Advisor, MCP) teorik anlamlarıyla birlikte bilgi vault'unda tutulur:
+`[[08-ai]]` → `[[08-09-terimler]]`. Bu projedeki kullanımı koddan ve `application.yml`'den okunur.
 
 ---
 

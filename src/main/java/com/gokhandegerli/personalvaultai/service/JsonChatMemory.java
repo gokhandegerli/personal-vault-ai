@@ -37,6 +37,8 @@ public class JsonChatMemory implements ChatMemory {
     private static final Pattern VALID_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final int MAX_CONTEXT_MESSAGES = 20;
     private static final int MAX_TITLE_LENGTH = 60;
+    private static final String RAG_CONTEXT_MARKER = "Context information is below";
+    private static final String EXPANDED_QUERY_MARKER = "Previous conversation:";
 
     private final ObjectMapper objectMapper;
     private final Path dir;
@@ -63,7 +65,10 @@ public class JsonChatMemory implements ChatMemory {
                     .orElseGet(() -> new Conversation(conversationId, Instant.now().toEpochMilli()));
             for (Message message : messages) {
                 if (message != null && message.getText() != null) {
-                    conversation.getMessages().add(new StoredMessage(role(message), message.getText(), List.of()));
+                    String text = stripRagContext(message.getText());
+                    if (text != null && !text.isBlank()) {
+                        conversation.getMessages().add(new StoredMessage(role(message), text, List.of()));
+                    }
                 }
             }
             updateTitle(conversation);
@@ -234,6 +239,24 @@ public class JsonChatMemory implements ChatMemory {
             return "system";
         }
         return "unknown";
+    }
+
+    private static String stripRagContext(String text) {
+        String stripped = cutAt(text, RAG_CONTEXT_MARKER);
+        if (stripped == null) {
+            return null;
+        }
+        stripped = cutAt(stripped, EXPANDED_QUERY_MARKER);
+        return stripped == null || stripped.isBlank() ? null : stripped.trim();
+    }
+
+    private static String cutAt(String text, String marker) {
+        int idx = text.indexOf(marker);
+        if (idx < 0) {
+            return text;
+        }
+        String before = text.substring(0, idx).replaceAll("\n+\\s*$", "").trim();
+        return before.isBlank() ? null : before;
     }
 
     private static Optional<Message> toSpringAiMessage(StoredMessage stored) {
