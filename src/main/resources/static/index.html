@@ -140,6 +140,26 @@
             font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none;
         }
         .toast.show { opacity: 1; }
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex;
+            align-items: center; justify-content: center; z-index: 50;
+        }
+        .modal {
+            background: var(--bg); color: var(--text); border: 1px solid var(--border);
+            border-radius: 14px; padding: 20px 24px; max-width: 460px; width: 92%;
+            box-shadow: 0 10px 40px rgba(0,0,0,.3);
+        }
+        .modal h3 { margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+        .modal .close { margin-left: auto; background: none; border: none; color: var(--muted);
+            font-size: 20px; cursor: pointer; padding: 0 4px; }
+        .modal .close:hover { color: var(--text); }
+        .modal table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+        .modal td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+        .modal td:first-child { color: var(--muted); white-space: nowrap; }
+        .modal td:last-child { text-align: right; font-weight: 600; word-break: break-all; }
+        .modal tr:last-child td { border-bottom: none; }
+        .state-pill { display: inline-block; padding: 1px 10px; border-radius: 999px;
+            font-size: 12px; font-weight: 700; background: var(--accent); color: #fff; }
     </style>
 </head>
 <body>
@@ -149,7 +169,7 @@
         <span class="sub">RAG · vault + corrections</span>
         <span class="spacer"></span>
         <button @click="ingest" :disabled="busy.ingest">↻ Re-index</button>
-        <button @click="loadStats" title="Vektör store durumu">📊 Status</button>
+        <button @click="showStats" title="Vektör store durumu">📊 Status</button>
         <span v-if="stats" class="badge">{{ progress || (stats.chunksWritten || 0) + ' chunks' }}</span>
         <button @click="toggleTheme" :title="dark ? 'Beyaz temaya geç' : 'Koyu temaya geç'">{{ dark ? '🌙' : '☀️' }}</button>
     </header>
@@ -194,6 +214,21 @@
     </div>
 
     <div class="toast" :class="{ show: toast }">{{ toast }}</div>
+
+    <div v-if="statsOpen" class="modal-overlay" @click.self="statsOpen = false">
+        <div class="modal">
+            <h3>📊 Vektör Store Durumu
+                <button class="close" @click="statsOpen = false" title="Kapat">✕</button>
+            </h3>
+            <table>
+                <tr><td>Store</td><td>{{ stats ? stats.storeType : '—' }}</td></tr>
+                <tr><td>Durum</td><td><span class="state-pill">{{ stats ? stats.state : '—' }}</span></td></tr>
+                <tr><td>Dosyalar</td><td>{{ stats ? stats.filesRead + ' / ' + stats.totalFiles : '—' }}</td></tr>
+                <tr><td>Chunk</td><td>{{ stats ? stats.chunksWritten + ' / ' + (stats.totalChunks || '?') : '—' }}</td></tr>
+                <tr v-if="stats && stats.currentFile"><td>Anlık dosya</td><td>{{ stats.currentFile }}</td></tr>
+            </table>
+        </div>
+    </div>
     </div>
 
     <script>
@@ -211,6 +246,7 @@
                     messages: [],
                     busy: { chat: false, ingest: false },
                     stats: null,
+                    statsOpen: false,
                     toast: '',
                     progress: '',
                     watchTimer: null,
@@ -332,16 +368,23 @@
                     }
                     return filesRead + '/' + totalFiles + ' dosya okunuyor...';
                 },
+                async showStats() {
+                    this.statsOpen = true;
+                    await this.loadStats();
+                },
                 async loadStats() {
                     try {
                         const res = await fetch(API + '/api/stores');
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
                         this.stats = await res.json();
                         if (this.stats && ['reading', 'embedding'].includes(this.stats.state)) {
                             this.progress = this.progressText();
                         } else if (!this.busy.ingest) {
                             this.progress = '';
                         }
-                    } catch (e) { /* ignore */ }
+                    } catch (e) {
+                        if (this.statsOpen) this.showToast('Status alınamadı: ' + e.message);
+                    }
                 },
                 showToast(t) {
                     this.toast = t;
