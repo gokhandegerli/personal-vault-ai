@@ -1,4 +1,4 @@
 package com.gokhandegerli.personalvaultai.dto;
 
-public record ChatRequest(String message) {
+public record ChatRequest(String message, String sessionId) {
 }

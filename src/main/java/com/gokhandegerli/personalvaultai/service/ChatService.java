@@ -16,7 +16,7 @@ import java.util.List;
 public class ChatService {
 
     private static final int EXCERPT_LENGTH = 300;
-    private static final String CONVERSATION_ID = "default";
+    private static final String DEFAULT_CONVERSATION_ID = "default";
 
     private final ChatClient chatClient;
 
@@ -24,10 +24,11 @@ public class ChatService {
         this.chatClient = chatClient;
     }
 
-    public ChatResponse ask(String message) {
+    public ChatResponse ask(String message, String sessionId) {
+        String conversationId = conversationId(sessionId);
         ChatClientResponse response = chatClient.prompt()
                 .user(message)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, CONVERSATION_ID))
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .call()
                 .chatClientResponse();
 
