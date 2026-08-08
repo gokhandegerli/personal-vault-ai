@@ -8,7 +8,8 @@ import java.util.List;
 public record AppProperties(
         Rag rag,
         VectorStore vectorStore,
-        Correction correction) {
+        Correction correction,
+        Conversations conversations) {
 
     public record Rag(
             String rootPath,
@@ -21,6 +22,9 @@ public record AppProperties(
     public record Correction(
             String file,
             String storeFile) {
+    }
+
+    public record Conversations(String dir) {
     }
 
     public record VectorStore(

@@ -2,9 +2,9 @@ package com.gokhandegerli.personalvaultai.config;
 
 import com.gokhandegerli.personalvaultai.advisor.CombinedQuestionAnswerAdvisor;
 import com.gokhandegerli.personalvaultai.service.CorrectionService;
+import com.gokhandegerli.personalvaultai.service.JsonChatMemory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
@@ -25,14 +25,9 @@ public class ChatConfig {
             """;
 
     @Bean
-    MessageWindowChatMemory chatMemory() {
-        return MessageWindowChatMemory.builder().maxMessages(20).build();
-    }
-
-    @Bean
     ChatClient chatClient(ChatClient.Builder builder, VectorStore vectorStore,
                           CorrectionService correctionService, AppProperties props,
-                          MessageWindowChatMemory chatMemory) {
+                          JsonChatMemory chatMemory) {
         return builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(

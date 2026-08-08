@@ -11,17 +11,19 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ChatService {
 
     private static final int EXCERPT_LENGTH = 300;
-    private static final String DEFAULT_CONVERSATION_ID = "default";
 
     private final ChatClient chatClient;
+    private final JsonChatMemory chatMemory;
 
-    public ChatService(ChatClient chatClient) {
+    public ChatService(ChatClient chatClient, JsonChatMemory chatMemory) {
         this.chatClient = chatClient;
+        this.chatMemory = chatMemory;
     }
 
     public ChatResponse ask(String message, String sessionId) {
@@ -46,15 +48,25 @@ public class ChatService {
                                 excerpt(d.getText())))
                         .toList();
 
+        chatMemory.attachSources(conversationId, sources);
+
         return new ChatResponse(answer, sources);
     }
 
-    public Flux<String> stream(String message) {
+    public Flux<String> stream(String message, String sessionId) {
+        String conversationId = conversationId(sessionId);
         return chatClient.prompt()
                 .user(message)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, CONVERSATION_ID))
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
                 .content();
+    }
+
+    private String conversationId(String sessionId) {
+        if (sessionId != null && JsonChatMemory.isValidId(sessionId)) {
+            return sessionId;
+        }
+        return UUID.randomUUID().toString();
     }
 
     private String excerpt(String text) {

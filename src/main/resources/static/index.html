@@ -34,6 +34,39 @@
         #app {
             display: flex; flex-direction: column; height: 100vh;
         }
+        #layout { display: flex; flex: 1; min-height: 0; }
+        #sidebar {
+            width: 260px; flex-shrink: 0; border-right: 1px solid var(--border);
+            background: var(--card); display: flex; flex-direction: column; min-height: 0;
+        }
+        .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); }
+        .new-chat {
+            width: 100%; background: var(--accent); color: #fff; border: none;
+            padding: 9px 12px; border-radius: 9px; font-size: 13.5px; font-weight: 600;
+            cursor: pointer;
+        }
+        .new-chat:hover { background: var(--accent-dark); }
+        .conv-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+        .conv-item {
+            position: relative; padding: 9px 30px 9px 11px; border-radius: 8px;
+            cursor: pointer; border: 1px solid transparent;
+        }
+        .conv-item:hover { background: var(--hover); }
+        .conv-item.active { background: var(--source-bg); border-color: var(--accent); }
+        .conv-title {
+            font-size: 13.5px; font-weight: 600; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis;
+        }
+        .conv-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+        .conv-delete {
+            position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: var(--muted); font-size: 13px;
+            cursor: pointer; padding: 4px; border-radius: 6px; opacity: 0;
+        }
+        .conv-item:hover .conv-delete { opacity: 1; }
+        .conv-delete:hover { background: var(--hover); color: var(--bad); }
+        .conv-empty { font-size: 12.5px; color: var(--muted); text-align: center; padding: 20px 8px; }
+        #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         header {
             padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border);
             display: flex; align-items: center; gap: 12px; flex-shrink: 0;
@@ -164,6 +197,24 @@
 </head>
 <body>
     <div id="app">
+    <div id="layout">
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <button class="new-chat" @click="newChat">+ Yeni sohbet</button>
+        </div>
+        <div class="conv-list">
+            <div v-if="!conversations.length" class="conv-empty">Henüz konuşma yok</div>
+            <div v-for="c in conversations" :key="c.id" class="conv-item"
+                 :class="{ active: c.id === sessionId }" @click="openConversation(c.id)">
+                <div class="conv-title">{{ c.title || 'Yeni sohbet' }}</div>
+                <div class="conv-meta">{{ c.messageCount }} mesaj</div>
+                <button class="conv-delete" title="Konuşmayı sil"
+                        @click.stop="deleteConversation(c.id)">🗑</button>
+            </div>
+        </div>
+    </aside>
+
+    <main id="main">
     <header>
         <h1>🧠 Personal Vault AI</h1>
         <span class="sub">RAG · vault + corrections</span>
@@ -212,6 +263,8 @@
                @keydown.enter.prevent="send" :disabled="busy.chat">
         <button @click="send" :disabled="busy.chat || !input.trim()">Gönder</button>
     </div>
+    </main>
+    </div>
 
     <div class="toast" :class="{ show: toast }">{{ toast }}</div>
 
@@ -239,11 +292,28 @@
             ? 'http://localhost:8080'
             : '';
 
+        const LS_SESSION = 'pva-session-id';
+
+        function newSessionId() {
+            return (crypto.randomUUID && crypto.randomUUID())
+                || 's-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        }
+
+        function savedSessionId() {
+            try { return localStorage.getItem(LS_SESSION) || ''; } catch (e) { return ''; }
+        }
+
+        function persistSessionId(id) {
+            try { localStorage.setItem(LS_SESSION, id); } catch (e) {}
+        }
+
         createApp({
             data() {
                 return {
                     input: '',
                     messages: [],
+                    conversations: [],
+                    sessionId: savedSessionId() || newSessionId(),
                     busy: { chat: false, ingest: false },
                     stats: null,
                     statsOpen: false,
@@ -283,7 +353,7 @@
                         const res = await fetch(API + '/api/chat', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message: q })
+                            body: JSON.stringify({ message: q, sessionId: this.sessionId })
                         });
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         const data = await res.json();
@@ -295,6 +365,7 @@
                         }));
                         msg.done = true;
                         msg.typing = false;
+                        this.loadConversations();
                     } catch (e) {
                         msg.text = '⚠️ Hata: ' + e.message;
                         msg.done = true;
@@ -400,12 +471,77 @@
                 scrollBottom() {
                     const el = document.getElementById('chat');
                     if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+                },
+                newChat() {
+                    this.sessionId = newSessionId();
+                    persistSessionId(this.sessionId);
+                    this.messages = [];
+                    this.input = '';
+                },
+                async openConversation(id) {
+                    try {
+                        const res = await fetch(API + '/api/conversations/' + encodeURIComponent(id));
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        const c = await res.json();
+                        this.sessionId = c.id;
+                        persistSessionId(this.sessionId);
+                        this.messages = (c.messages || []).map(m => ({
+                            role: m.role === 'user' ? 'user' : 'ai',
+                            text: m.content || '',
+                            done: true,
+                            typing: false,
+                            sources: (m.sources || []).map(s => ({
+                                file: s.file || 'unknown',
+                                excerpt: s.excerpt || ''
+                            })),
+                            feedback: null,
+                            feedbackSaved: false,
+                            corrected: '',
+                            answer: m.role === 'assistant' ? (m.content || '') : ''
+                        }));
+                        this.$nextTick(() => this.scrollBottom());
+                    } catch (e) {
+                        this.showToast('Konuşma yüklenemedi: ' + e.message);
+                    }
+                },
+                async deleteConversation(id) {
+                    try {
+                        const res = await fetch(API + '/api/conversations/' + encodeURIComponent(id), { method: 'DELETE' });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        if (id === this.sessionId) this.newChat();
+                        await this.loadConversations();
+                        this.showToast('Konuşma silindi');
+                    } catch (e) {
+                        this.showToast('Silme hatası: ' + e.message);
+                    }
+                },
+                async loadConversations() {
+                    try {
+                        const res = await fetch(API + '/api/conversations');
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        this.conversations = await res.json();
+                    } catch (e) {
+                        this.showToast('Konuşma listesi alınamadı: ' + e.message);
+                    }
+                },
+                async restoreConversation() {
+                    if (!savedSessionId()) return;
+                    try {
+                        const res = await fetch(API + '/api/conversations/' + encodeURIComponent(this.sessionId));
+                        if (!res.ok) return;
+                        const c = await res.json();
+                        await this.openConversation(c.id);
+                    } catch (e) {
+                        /* sessizce geç — boş yeni sohbetle devam */
+                    }
                 }
             },
             mounted() {
                 this.initTheme();
                 this.startWatch();
                 this.loadStats();
+                this.loadConversations();
+                this.restoreConversation();
             }
         }).mount('#app');
     </script>

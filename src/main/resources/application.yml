@@ -36,6 +36,10 @@ app:
     file: data/corrections.log
     store-file: data/corrections-vector-store.json
 
+  conversations:
+    # JSON-backed chat memory; one file per conversation (profile-independent).
+    dir: data/conversations
+
 management:
   endpoints:
     web:
