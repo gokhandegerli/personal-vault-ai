@@ -6,7 +6,6 @@ import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.document.Document;
@@ -36,6 +35,7 @@ public class CombinedQuestionAnswerAdvisor implements BaseAdvisor {
             the user that you can't answer the question.""");
 
     private static final int HISTORY_MESSAGES = 6;
+    private static final int MIN_FULL_QUERY_LENGTH = 25;
 
     private final List<VectorStore> vectorStores;
     private final SearchRequest searchRequest;
@@ -95,6 +95,10 @@ public class CombinedQuestionAnswerAdvisor implements BaseAdvisor {
                 ? request.prompt().getUserMessage().getText()
                 : "";
 
+        if (current.length() >= MIN_FULL_QUERY_LENGTH) {
+            return current;
+        }
+
         Object conversationId = request.context().get(ChatMemory.CONVERSATION_ID);
         if (conversationId == null) {
             return current;
@@ -106,7 +110,7 @@ public class CombinedQuestionAnswerAdvisor implements BaseAdvisor {
         }
 
         String historyText = history.stream()
-                .filter(m -> m instanceof UserMessage || m instanceof AssistantMessage)
+                .filter(m -> m instanceof UserMessage)
                 .map(Message::getText)
                 .filter(Objects::nonNull)
                 .reduce((a, b) -> a + "\n" + b)
