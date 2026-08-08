@@ -164,9 +164,11 @@ public class IngestionService {
         }
     }
 
+    private static final String CLEAR_SENTINEL = "__pva_clear_all__";
+
     private void clearStore() {
         try {
-            vectorStore.delete(new FilterExpressionBuilder().isNotNull("source").build());
+            vectorStore.delete(new FilterExpressionBuilder().ne("source", CLEAR_SENTINEL).build());
         } catch (Exception e) {
             logger.warn("Failed to clear existing store before ingest: {}", e.getMessage());
         }
