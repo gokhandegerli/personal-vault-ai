@@ -2,8 +2,8 @@
 
 Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen bir
 **RAG (Retrieval-Augmented Generation)** chatbot'u. Spring AI 2.0 + Spring Boot 4 üzerine kurulu;
-chat modeli isteğe bağlı olarak **OpenCode Zen (ücretsiz, örn. `big-pickle`)** veya Ollama ile çalışır,
-embedding her zaman local Ollama'da kalır; üç farklı vector store arasında tek profil değiştirerek geçiş yapabilirsin.
+**embedding local Ollama'da** (`nomic-embed-text`), **chat OpenCode Zen'de** (ücretsiz `big-pickle`) çalışır;
+üç farklı vector store arasında tek profil değiştirerek geçiş yapabilirsin.
 
 > Kısaca: `.vault` içindeki markdown notlarına soru sor. Cevap, yalnızca o notlardan çekilen
 > bilgiye dayanır — model kendi eğitim verisinden değil, **senin dokümanlarından** konuşur.
@@ -46,6 +46,24 @@ göre cevap vermeye zorlar.
 5. **Augment + Generate (güçlendir + üret):** Bulunan chunk'lar soruyla birlikte LLM'e verilir;
    LLM yalnızca bu bağlama dayanarak cevap üretir ve hangi dosyadan aldığını (kaynak) geri döner.
 
+### RAG bir yazılım değil, bir akıştır
+
+"RAG" diye kurulacak tek bir program yoktur. RAG, **üç ayrı sorumluluğu** tek bir akışta birleştiren
+bir tekniktir. Karıştırılan ifadeleri şöyle ayrıştırmak faydalı:
+
+| İfade | Ne yapar | Soru 1'deki rolü |
+|---|---|---|
+| **Embedding modeli** | Metni vektöre (sayı dizisine) çevirir | Hazırlıkta chunk'ları, sorguda soruyu vektöre çevirir |
+| **Vector store** | Vektörleri saklar, "en yakın" olanı bulur | Retrieval (getir) adımı |
+| **LLM (chat modeli)** | Metinden metin üretir (cevabı yazar) | Generate (üret) adımı |
+| **Ollama** | Uygulama; **embedding modelini** local'de çalıştırır | Embedding'i üretir (hem hazırlık hem sorguda) |
+| **Zen** | Bulut servis; **chat modelini** (LLM) barındırır | Cevabı üretir |
+| **Spring AI** | Java çatısı; yukarıdaki parçaları birbirine bağlayan kodu verir | Akışı uçtan uca ören iskelet |
+
+**Özet:** RAG = "getir (retrieve) + güçlendir (augment) + üret (generate)". Bu akışta
+embedd olmayı **Ollama**, cevabı yazmayı **Zen**, getirme işini **vector store** yapar; bu parçaları
+birbirine bağlayan kod ise bu projedir.
+
 ### Bu proje ne yapıyor?
 
 - `.vault` klasörünü tarar, markdown + docx dosyalarını indeksler (`POST /api/ingest`).
@@ -64,7 +82,7 @@ göre cevap vermeye zorlar.
 | Model "uydurur" (hallucination) | Cevap yalnızca getirilen bağlama dayanır; bağlam yoksa "bilmiyorum" der |
 | Modeli yeniden eğitmek çok pahalı | RAG eğitim gerektirmez; bilgiyi depolama tarafında tutar |
 | Notlar sürekli değişir | `POST /api/ingest` ile saniyeler içinde yeniden indekslenir |
-| Verinin dışarı çıkması istenmez | Varsayılan (`simple`) profilde Ollama ile chat + embedding tamamen local çalışır; `zen` profilde yalnızca soru+bağlam buluta (OpenCode Zen) gider |
+| Verinin dışarı çıkması istenmez | Embedding local Ollama'da yapılır; vault notlarının tamamı asla dışarı çıkmaz. Zen'e yalnızca **soru + retrieve edilen birkaç chunk** gider (gizlilik sıkıysa bkz. "Model sağlayıcıyı değiştirmek" → tamamen local LLM) |
 | "LLM'e soru sor" yerine "belgemden soru sor" | Gizlilik + doğruluk: kaynaklar gösterilir, doğrulanabilir |
 
 ### Neden Spring AI?
@@ -78,10 +96,12 @@ göre cevap vermeye zorlar.
 
 ### Neden Ollama (local embedding)?
 
-- Embedding modeli (`nomic-embed-text`) CPU'da rahat çalışır; embedding vektörleri local'de üretilir.
-- Chat modeli varsayılan olarak Ollama'da `qwen2.5:7b` ile çalışır; **`zen` profili** ile chat
-  OpenCode Zen'e (ücretsiz `big-pickle`) taşınır — kod değişmez, yalnızca config/profile değişir.
-- Tamamen buluta geçmek istersen yalnızca config değişir (bkz. "Model sağlayıcıyı değiştirmek").
+- RAG'ın **iki yerinde** embedding gerekir: hazırlıkta (chunk'ları vektöre çevirme) ve sorguda
+  (soruyu vektöre çevirme). Zen'in ücretsiz modelleri yalnızca **chat** üretir, embedding üretemez.
+- Embedding'i de buluta taşırsan **vault'un tamamı** (tüm özel notlar) dışarıya embed edilmek üzere
+  gönderilir. Local'de tutmak notları makineden çıkarmaz.
+- `nomic-embed-text` CPU'da rahat çalışır — ek GPU gerekmez.
+- Zen'e giden tek şey: **soru + retrieve edilen birkaç chunk** (topK=6). Notların tamamı asla dışarı çıkmaz.
 
 ---
 
@@ -92,21 +112,18 @@ göre cevap vermeye zorlar.
 - **Java 25** (sdkman: `sdk install java 25.0.3-tem`)
 - **Maven 3.9+**
 - **Docker + docker-compose** (chroma ve pgvector profilleri için)
-- **Ollama** (embedding model; chat isteğe bağlı — `zen` profili chat için Ollama gerektirmez)
+- **Ollama** (embedding modeli; chat Zen'den geldiği için chat tarafında Ollama gerekmez)
 
-### 1) Ollama'yı kur ve modelleri indir
+### 1) Ollama'yı kur ve embedding modelini indir
 
 ```bash
 # Linux/macOS: tek komut (sistem yöneticisi şifresi ister)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Modelleri çek (embedding; CPU'da çalışır)
-ollama pull nomic-embed-text  # embedding modeli (768 boyutlu vektör)
+# Embedding modeli (CPU'da çalışır; 768 boyutlu vektör üretir)
+ollama pull nomic-embed-text
 
-# Chat modeli — varsayılan (local) profil için:
-ollama pull qwen2.5:7b
-# `zen` profili chat için Ollama kullanmaz; embedding için yukarıdaki model yeterli.
-
+# Chat modeli Ollama'da çalışmaz — chat her zaman Zen (bulut) üzerinden gelir.
 # Servisin ayakta olduğunu kontrol et
 ollama list
 ```
@@ -291,8 +308,7 @@ kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değiş
 | `app.rag.excluded-dirs` | `.git,.obsidian,.trash,temp,assets` | Atlanacak klasörler |
 | `app.rag.max-files` | `0` | `0`=hepsi; aksi halde ilk N dosya |
 | `spring.ai.ollama.base-url` | `http://localhost:11434` | Ollama adresi (env: `OLLAMA_BASE_URL`) |
-| `spring.ai.ollama.chat.model` | `qwen2.5:7b` | Chat modeli (env: `OLLAMA_CHAT_MODEL`; yalnız `simple` profili) |
-| `spring.ai.ollama.embedding.model` | `nomic-embed-text` | Embedding modeli |
+| `spring.ai.ollama.embedding.model` | `nomic-embed-text` | Embedding modeli (hazırlık + sorgu) |
 | `spring.ai.openai.base-url` | `https://opencode.ai/zen/v1` | Zen endpoint (yalnız `zen` profili; env: `ZEN_BASE_URL`) |
 | `spring.ai.openai.chat.options.model` | `big-pickle` | Zen chat modeli (yalnız `zen` profili; env: `ZEN_CHAT_MODEL`) |
 | `app.vector-store.simple.file` | `data/simple-vector-store.json` | Simple store kalıcılık dosyası |
@@ -386,7 +402,8 @@ personal-vault-ai/
 
 | Terim | Açıklama |
 |---|---|
-| **LLM** | Büyük dil modeli. Metin üreten sinir ağı (varsayılan profilde Ollama `qwen2.5:7b`, `zen` profilde OpenCode Zen `big-pickle`). |
+| **LLM** | Büyük dil modeli; metinden metin üretir. Bu projede chat modeli = Zen `big-pickle` (bulut). |
+| **Embedding modeli** | Metni anlamsal vektöre çeviren model (Ollama `nomic-embed-text`, local). Embedding'ten LLM (Zen) sorumlu değildir. |
 | **RAG** | Retrieval-Augmented Generation: dış veriden getirilen bağlamla cevap üretme. |
 | **Embedding** | Metni anlamsal vektöre çevirme; benzer anlam = benzer vektör yönü. |
 | **Vector store** | Vektörleri ve metinlerini saklayan, "en yakın" vektörü arayan veri deposu. |
