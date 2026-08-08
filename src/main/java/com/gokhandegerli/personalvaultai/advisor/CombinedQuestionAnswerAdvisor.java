@@ -42,9 +42,14 @@ public class CombinedQuestionAnswerAdvisor implements BaseAdvisor {
 
     @Override
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain advisorChain) {
+        String query = request.prompt().getUserMessage() != null
+                ? request.prompt().getUserMessage().getText()
+                : "";
+        SearchRequest requestWithQuery = SearchRequest.from(searchRequest).query(query).build();
+
         List<Document> retrieved = new ArrayList<>();
         for (VectorStore store : vectorStores) {
-            List<Document> docs = store.similaritySearch(searchRequest);
+            List<Document> docs = store.similaritySearch(requestWithQuery);
             retrieved.addAll(docs);
         }
 
@@ -54,9 +59,7 @@ public class CombinedQuestionAnswerAdvisor implements BaseAdvisor {
                 .orElse("");
 
         String rendered = CONTEXT_PROMPT_TEMPLATE.render(Map.of(
-                "query", request.prompt().getUserMessage() != null
-                        ? request.prompt().getUserMessage().getText()
-                        : "",
+                "query", query,
                 "question_answer_context", contextText));
         Prompt augmentedPrompt = request.prompt().augmentUserMessage(rendered);
 
