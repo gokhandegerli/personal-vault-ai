@@ -42,7 +42,8 @@ public class ChatConfig {
                                 SearchRequest.builder()
                                         .topK(props.rag().topK())
                                         .build(),
-                                0))
+                                0,
+                                chatMemory))
                 .build();
     }
 }
