@@ -5,6 +5,7 @@ import com.gokhandegerli.personalvaultai.dto.Source;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -15,6 +16,7 @@ import java.util.List;
 public class ChatService {
 
     private static final int EXCERPT_LENGTH = 300;
+    private static final String CONVERSATION_ID = "default";
 
     private final ChatClient chatClient;
 
@@ -25,6 +27,7 @@ public class ChatService {
     public ChatResponse ask(String message) {
         ChatClientResponse response = chatClient.prompt()
                 .user(message)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, CONVERSATION_ID))
                 .call()
                 .chatClientResponse();
 
@@ -48,6 +51,7 @@ public class ChatService {
     public Flux<String> stream(String message) {
         return chatClient.prompt()
                 .user(message)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, CONVERSATION_ID))
                 .stream()
                 .content();
     }

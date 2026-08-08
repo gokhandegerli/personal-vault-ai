@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personal Vault AI</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/marked@12/marked.min.js"></script>
+    <script src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
@@ -59,8 +61,23 @@
         .msg.ai { align-self: flex-start; align-items: flex-start; }
         .bubble {
             padding: 10px 14px; border-radius: 14px; font-size: 14.5px;
-            line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
+            line-height: 1.55; word-wrap: break-word; overflow-wrap: break-word;
         }
+        .bubble :first-child { margin-top: 0; }
+        .bubble :last-child { margin-bottom: 0; }
+        .bubble p { margin: 0.5em 0; }
+        .bubble h1, .bubble h2, .bubble h3, .bubble h4 { margin: 0.8em 0 0.4em; line-height: 1.3; }
+        .bubble h1 { font-size: 1.25em; } .bubble h2 { font-size: 1.15em; } .bubble h3 { font-size: 1.05em; } .bubble h4 { font-size: 1em; }
+        .bubble ul, .bubble ol { margin: 0.4em 0; padding-left: 1.4em; }
+        .bubble li { margin: 0.2em 0; }
+        .bubble code { font-family: ui-monospace, monospace; font-size: 13px; background: var(--source-bg); padding: 1px 5px; border-radius: 4px; }
+        .bubble pre { background: var(--source-bg); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 0.5em 0; }
+        .bubble pre code { background: none; padding: 0; }
+        .bubble table { border-collapse: collapse; margin: 0.6em 0; display: block; overflow-x: auto; max-width: 100%; }
+        .bubble th, .bubble td { border: 1px solid var(--border); padding: 5px 10px; font-size: 13.5px; }
+        .bubble th { background: var(--source-bg); }
+        .bubble blockquote { border-left: 3px solid var(--accent); margin: 0.5em 0; padding: 2px 0 2px 12px; color: var(--muted); }
+        .bubble a { color: var(--accent); }
         .msg.user .bubble { background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
         .msg.ai .bubble { background: var(--ai); border-bottom-left-radius: 4px; }
         .bubble.cursor::after { content: "▍"; animation: blink 1s step-end infinite; }
@@ -145,7 +162,7 @@
         </div>
 
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
-            <div class="bubble" :class="{ cursor: m.typing }">{{ m.text }}</div>
+            <div class="bubble" :class="{ cursor: m.typing }" v-html="renderMarkdown(m.text)"></div>
 
             <template v-if="m.role === 'ai' && m.done">
                 <div v-if="m.sources.length" class="sources">
@@ -201,6 +218,11 @@
                 };
             },
             methods: {
+                renderMarkdown(text) {
+                    if (!text) return '';
+                    const raw = window.marked.parse(text);
+                    return window.DOMPurify.sanitize(raw);
+                },
                 toggleTheme() {
                     this.dark = !this.dark;
                     document.documentElement.setAttribute('data-theme', this.dark ? 'dark' : 'light');

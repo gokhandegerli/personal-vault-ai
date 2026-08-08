@@ -3,6 +3,8 @@ package com.gokhandegerli.personalvaultai.config;
 import com.gokhandegerli.personalvaultai.advisor.CombinedQuestionAnswerAdvisor;
 import com.gokhandegerli.personalvaultai.service.CorrectionService;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
@@ -23,16 +25,24 @@ public class ChatConfig {
             """;
 
     @Bean
+    MessageWindowChatMemory chatMemory() {
+        return MessageWindowChatMemory.builder().maxMessages(20).build();
+    }
+
+    @Bean
     ChatClient chatClient(ChatClient.Builder builder, VectorStore vectorStore,
-                          CorrectionService correctionService, AppProperties props) {
+                          CorrectionService correctionService, AppProperties props,
+                          MessageWindowChatMemory chatMemory) {
         return builder
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(new CombinedQuestionAnswerAdvisor(
-                        java.util.List.of(vectorStore, correctionService.store()),
-                        SearchRequest.builder()
-                                .topK(props.rag().topK())
-                                .build(),
-                        0))
+                .defaultAdvisors(
+                        MessageChatMemoryAdvisor.builder(chatMemory).order(10).build(),
+                        new CombinedQuestionAnswerAdvisor(
+                                java.util.List.of(vectorStore, correctionService.store()),
+                                SearchRequest.builder()
+                                        .topK(props.rag().topK())
+                                        .build(),
+                                0))
                 .build();
     }
 }
