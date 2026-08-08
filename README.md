@@ -64,6 +64,97 @@ bir tekniktir. Karıştırılan ifadeleri şöyle ayrıştırmak faydalı:
 embedd olmayı **Ollama**, cevabı yazmayı **Zen**, getirme işini **vector store** yapar; bu parçaları
 birbirine bağlayan kod ise bu projedir.
 
+### RAG olmayan LLM'ler: ChatGPT, Gemini, Abacus
+
+Bu proje **RAG üzerine** kurulu: dış bellek (vector store) her soruda tazelenir. Peki ChatGPT,
+Gemini, Abacus gibi milyarlarca veriyle eğitilmiş online LLM'ler aynı yapıda mı? Hayır — onların
+adı **LLM chatbot / foundation-model sohbet asistanı**dır. Fark veri kaynağındadır:
+
+| | RAG (bu uygulama) | ChatGPT, Gemini, Abacus |
+|---|---|---|
+| Veri kaynağı | **Non-parametric hafıza**: dış bellek (vector store), her soruda taze getirilir | **Parametric hafıza**: bilgi eğitim sırasında milyarlarca ağırlığa gömülür |
+| Arama | Evet (retrieval) | Genelde hayır — doğrudan model üretir |
+| Cevap | Yalnızca dokümanlardan | Yalnızca eğitim verisinden (güncelliği kesilir) |
+| Güncellik | İndekslediğin anda güncel | Eğitim kut tarihiyle sınırlı |
+
+ChatGPT/Gemini "RAG olmadan çalışan LLM" örneğidir: bilgiyi aramaz, eğitimden kalan ağırlıklarından
+tahmin üretir. Bazıları internette gezinme (`web browsing`) özelliği sunar — o, uygulamaya eklenmiş
+basit bir arama/RAG katmanıdır; çekirdek üretim yine parametriktir. Teknik olarak bu modellerin iç
+mimarisi **transformer + autoregressive**'tir (sıradaki token'ı tahmin eder); "kaç milyar parametre"
+denen şey, bilginin saklandığı alanın büyüklüğüdür.
+
+### LLM bu işi nasıl yapıyor? (LLM'e ne gider, o ne yapar?)
+
+LLM'e tek başına "soru" gitmez; gitseydi model yalnızca **kendi eğitim verisiyle** cevap verirdi.
+Gerçekte her istekte LLM'e **3 katmanlı bir prompt** gider:
+
+```
+[SYSTEM]  Sen yalnızca verilen context'e dayanarak cevap veren bir asistansın.
+          Bağlamda cevap yoksa açıkça söyle. Kısa ve doğru ol.
+
+[USER]
+  Soru:    "Saga pattern nedir?"
+  ─────────────────────────────
+  Context (topK=6 chunk — vector store'un bulduğu ilgili parçalar):
+    "…dağıtık sistemlerde uzun işlemleri yönetmek için saga pattern…"
+    "…her adım kendi local transaction'ıdır; biri başarısız olursa…"
+    "…compensation transaction'lar önceki adımları geri alır…"
+  ─────────────────────────────
+  Bu context'e dayanarak yanıtla.
+```
+
+Bu prompt uygulamada iki yerde kurulur: **system prompt** `ChatConfig.java` içinde sabit durur;
+**context + soru** ise `CombinedQuestionAnswerAdvisor` tarafından kullanıcı mesajının içine yazılır.
+
+**Aşamalar kimde?**
+
+| Aşama | Kim yapar | Ne olur |
+|---|---|---|
+| İlgili chunk'ları bulmak | **Vector store** (retrieval) | Soru vektöre çevrilir, en yakın `topK` chunk bulunur |
+| Bulunanları anlamlı cevaba çevirmek | **LLM** (generation) | Verilen tüm metni okur, token token yeni metin üretir |
+| "Bağlam dışına çıkma" kuralı | **System prompt** | Modeli yalnızca verilen context'e zorlar |
+
+**Kritik ayrım:** LLM bilgiyi *aramaz* — arama işini vector store yaptı. LLM, bulunmuş ham
+paragrafları alır, soruya göre yeniden düzenler ve akıcı bir cevap **yazar**. "Anlamlı mesajı"
+LLM çıkarır: kopuk chunk'ların soru etrafında tek akıcı metne dönüştüğü yer orasıdır. Ama bu
+serbestliği sınırlayan yine system prompt'tur — model "bağlamda yoksa bilmiyorum demek" zorundadır,
+bu sayede uydurma (hallucination) azalır.
+
+**System prompt nedir?** LLM'e daha ilk kelimeyi üretmeden önce verilen "görev tanımı + davranış
+kuralları" metnidir. Mesaj geçmişinden bağımsızdır, her istekte en önce gönderilir: "sen kimsin,
+hangi kurallara uyacaksın". Kullanıcı sorularıyla karışmaz; o, modelin zihnini şekillendiren
+prologdur. Yukarıdaki örnekte `[SYSTEM]` satırı tam olarak budur.
+
+### Örnek case: "Stack vs Heap interview" — hangisi LLM, hangisi RAG?
+
+Bu projede "Beni Stack vs Heap konusunda interview yap" diyince gelişen akış, sorumlulukların
+ayrımını net gösterir:
+
+```
+[Kullanıcı] "Stack vs Heap interview yap"
+   │
+   ├─► Retrieval (RAG): soru embed edilir, topK=6 chunk getirilir
+   │      └─ kaynaklar: 01-01-stack-vs-heap.md, 01-03-stackoverflow..., 01-Summary.md
+   │
+   └─► LLM (Big Pickle):
+          "Soru 1: Stack'in temel özellikleri nelerdir?"   ← LLM yazdı
+```
+
+Her turda aynı döngü tekrarlanır — kullanıcı cevap verir, yeni soru gelir:
+
+| Gördüğün davranış | Kim üretiyor |
+|---|---|
+| "Soru 1: ... özellikleri nelerdir?" (yeni soru sorma) | **LLM** |
+| "Cevabın doğru. Ek olarak şunları da söyleyebilirsin: ..." (onaylama + eksik ekleme) | **LLM** |
+| "Soru 2: Peki Heap'in özellikleri nelerdir?" (ilerletme) | **LLM** |
+| Altta listelenen kaynak dosyalar | **RAG** (retrieval) |
+
+**Kural:** **Kutu = LLM, kutunun içindekiler (kaynaklar) = RAG.** Interview akışının tamamı —
+soru sormak, cevabı değerlendirmek, eksikleri eklemek, bir sonraki soruya geçmek — LLM'in yazdığı
+metindir; programlanmış bir state machine değildir. Sistem (RAG) yalnızca her tur için ilgili
+chunk'ları ve önceki konuşmayı (chat memory) LLM'e hazırlar. "Doğru kabul etme" de LLM'in
+yargısıdır ve yanılabilir — bu yüzden kendi sorduğu soruyu unutup çelişebildiğini daha önce gördük.
+
 ### Bu proje ne yapıyor?
 
 - `.vault` klasörünü tarar, markdown + docx dosyalarını indeksler (`POST /api/ingest`).
@@ -102,6 +193,38 @@ birbirine bağlayan kod ise bu projedir.
   gönderilir. Local'de tutmak notları makineden çıkarmaz.
 - `nomic-embed-text` CPU'da rahat çalışır — ek GPU gerekmez.
 - Zen'e giden tek şey: **soru + retrieve edilen birkaç chunk** (topK=6). Notların tamamı asla dışarı çıkmaz.
+
+### Ollama hem LLM hem embedding çalıştırabilir
+
+Ollama bir **model çalıştırıcı**dır; tek programla iki tür modeli de indirip servis eder. "Ollama
+deyince LLM akla geliyor" algısı doğrudur — ama tek bir `ollama pull <model>` komutuyla embedding
+modeli de kurulur:
+
+| Model türü | Ne üretir | Örnekler | Bu projede |
+|---|---|---|---|
+| Chat modeli (LLM) | Metinden metin | `qwen2.5`, `llama3.2`, `deepseek-r1` | Kullanılmıyor — chat Zen'den geliyor |
+| Embedding modeli | Metinden vektör | `nomic-embed-text`, `all-minilm`, `mxbai-embed-large` | Embedding burada (local) |
+
+İkisi de `ollama list`'te görünür; Ollama aynı anda birden çok model barındırır. Bu projede sadece
+embedding tarafı seçildi çünkü chat Zen'de ücretsiz geliyor. Chat'i de Ollama'ya taşımak istersen
+sağlayıcı ayarını değiştirmek yeterli (kod değişmez):
+
+```yaml
+spring:
+  ai:
+    model:
+      chat: ollama          # chat'i de Ollama'ya al (LLM)
+      embedding: ollama     # embedding zaten Ollama'da
+    ollama:
+      chat:
+        model: llama3.2
+      embedding:
+        model: nomic-embed-text
+```
+
+> Chat'i Ollama'ya almak "daha yerel" olur ama CPU'da yavaştır (LLM GPU ister), Zen ise bulutta
+> hızlı ve ücretsizdir. Bu proje "embedding local (gizlilik) + chat bulut (hız/maliyet)" dengesini
+> seçti. Daha sıkı gizlilik istiyorsan LLM'i de Ollama'ya taşıyabilirsin.
 
 ---
 
@@ -410,6 +533,8 @@ personal-vault-ai/
 | **Chunk** | Dokümanın bölündüğü küçük parça; embedding ve retrieval birimi. |
 | **topK** | Soruya en benzer kaç chunk'ın getirileceği. |
 | **Hallucination** | Modelin veriye dayanmadan uydurması. RAG bunu azaltır. |
+| **System prompt** | LLM'e her istekten önce verilen görev tanımı + davranış kuralları (prolog); kullanıcı sorularından ayrıdır. |
+| **Retrieval** | RAG'ın "getir" adımı: soruyu vektöre çevirip store'da en yakın chunk'ları bulma. |
 | **Spring AI** | Java/Spring için AI uygulama çatısı (modeller, vector store'lar, advisor'lar). |
 | **ChatClient** | Spring AI'nın fluently chat API'si (prompt → call/stream → cevap). |
 | **Advisor** | ChatClient'a takılan ara katman; `QuestionAnswerAdvisor` RAG'i uygular. |
