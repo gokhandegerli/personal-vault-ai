@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -151,6 +152,7 @@ public class IngestionService {
 
             state.set("embedding");
             currentFile.set("");
+            documents.addAll(buildIndexDocuments(root, files));
             List<Document> chunks = splitter.apply(documents);
             totalChunks.set(chunks.size());
             clearStore();
@@ -221,6 +223,40 @@ public class IngestionService {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read " + source, e);
         }
+    }
+
+    private List<Document> buildIndexDocuments(Path root, List<Path> files) {
+        Map<String, List<String>> filesByDir = new TreeMap<>();
+        for (Path file : files) {
+            Path parent = file.getParent();
+            if (parent == null) {
+                continue;
+            }
+            String dir = rel(root, parent);
+            if (dir.isEmpty()) {
+                continue;
+            }
+            filesByDir.computeIfAbsent(dir, k -> new ArrayList<>()).add(file.getFileName().toString());
+        }
+        List<Document> indexDocs = new ArrayList<>();
+        for (String dir : filesByDir.keySet()) {
+            List<String> all = new ArrayList<>();
+            filesByDir.forEach((otherDir, names) -> {
+                if (otherDir.equals(dir) || otherDir.startsWith(dir + "/")) {
+                    all.addAll(names);
+                }
+            });
+            all.sort(Comparator.naturalOrder());
+            String text = "# Index: " + dir
+                    + "\nBu dizindeki tum konular (dosya adlari konu basliklaridir):\n"
+                    + all.stream().map(name -> "- " + name).collect(java.util.stream.Collectors.joining("\n"));
+            indexDocs.add(Document.builder()
+                    .text(text)
+                    .metadata(Map.of("source", dir + "/", "isIndex", true))
+                    .build());
+        }
+        logger.info("Built {} directory index documents", indexDocs.size());
+        return indexDocs;
     }
 
     private static final String CLEAR_SENTINEL = "__pva_clear_all__";
