@@ -152,8 +152,8 @@ public class IngestionService {
 
             state.set("embedding");
             currentFile.set("");
-            documents.addAll(buildIndexDocuments(root, files));
-            List<Document> chunks = splitter.apply(documents);
+            List<Document> chunks = new ArrayList<>(splitter.apply(documents));
+            chunks.addAll(buildIndexDocuments(root, files));
             totalChunks.set(chunks.size());
             clearStore();
 
