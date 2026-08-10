@@ -275,6 +275,9 @@ curl -X POST http://localhost:8080/api/feedback \
 │                  └── CombinedQuestionAnswerAdvisor                          │
 │                        ├── 1) soruyu embed et                              │
 │                        ├── 2) topK=6 chunk'ı vault store'dan getir          │
+│                        │      pgvector: HYBRID — vektör top-20 (cosine)    │
+│                        │        + tsvector FTS top-20 (lexeme OR, Turkish) │
+│                        │        → RRF füzyon → top-6                       │
 │                        ├── 3) topK=6 chunk'ı correction store'dan getir     │
 │                        └── 4) system prompt + chunk'lar + soru → LLM        │
 │  Cevap + kaynak dosyalar (RETRIEVED_DOCUMENTS)                             │
@@ -290,6 +293,8 @@ curl -X POST http://localhost:8080/api/feedback \
 | Feedback | kullanıcı düzeltmeleri → ayrı vector store | `service/CorrectionService.java` |
 | Embedding | `OllamaEmbeddingModel` (otomatik yapılandırılır) | `application.yml` |
 | Vector store | `VectorStore` (profil bazlı bean) + corrections store | `config/VectorStoreConfig.java` |
+| Hybrid search | decorator (`HybridSearchVectorStore` + `HybridRetriever`) → FTS+vektör+RRF | `service/HybridSearchVectorStore.java`, `service/HybridSearchService.java` (src/pgvector) |
+| Hybrid schema | `search_vector tsvector` generated kolonu + GIN index (startup'ta otomatik, idempotent) | `config/PgVectorSearchIndexInitializer.java` (src/pgvector) |
 | API | REST controller | `web/AiController.java` |
 
 ---
@@ -302,12 +307,21 @@ curl -X POST http://localhost:8080/api/feedback \
 | Servis | Yok (JSON dosyası) | Docker `pva-chroma:8000` | Docker `pva-pgvector:5433` |
 | Metadata filtreleme | Sınırlı | Evet | Evet |
 | Kalıcılık | `data/simple-vector-store.json` | `chroma-data` volume | `pgvector-data` volume |
-| Arama | Brute-force (küçük veri için yeterli) | HNSW | HNSW (`vector_cosine_ops`) |
+| Arama | Brute-force (küçük veri için yeterli) | HNSW | **Hybrid**: HNSW (`vector_cosine_ops`) + tsvector FTS, RRF füzyon |
 | Üretime uygunluk | ❌ | Kısmen | ✅ |
 | Aktivasyon | `--spring.profiles.active=simple` | `...=chroma` | `...=pgvector` |
 
 **Öneri:** Önce `simple` ile akışı doğrula → sonra `pgvector` (üretim kalitesi) → dilersen `chroma` ile
 kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değişmez.
+
+**Hybrid search (yalnız `pgvector`):** vault store'u `HybridSearchVectorStore` decorator'ıyla sarılır.
+Sorgu hem vektör (cosine top-20) hem **Postgres full-text** (tsvector top-20) ile aranır; iki liste
+**RRF (Reciprocal Rank Fusion, k=60)** ile birleştirilip top-6 döner. FTS sorgusu, kullanıcı cümlesinin
+lexeme'lerinden `'turkish'` config ile OR sorgusu kurar (stopword'ler doğal olarak elenir; sayısal
+lexeme'ler atlanır). Böylece **isimle referans veren** sorgular da bulunur — örn. `"01 Summary icin
+interview yapalim mi?"` artık `01-Summary.md`'yi getirir (saf vektörde bulunamıyordu). `search_vector`
+kolonu startup'ta otomatik oluşturulur (idempotent DDL), mevcut satırlar otomatik doldurulur —
+**re-ingest gerekmez.** Corrections store (SimpleVectorStore) saf vektörde kalır.
 
 > **PGVector dims uyarısı:** `application-pgvector.yml` içindeki `app.vector-store.pgvector.dimensions`
 > embedding modelinin boyutuna uymalıdır: `nomic-embed-text` → 768, `bge-m3` → 1024.
