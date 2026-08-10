@@ -10,5 +10,5 @@ app:
   vector-store:
     pgvector:
       # Must match the dimension of the configured Ollama embedding model:
-      #   nomic-embed-text -> 768, mxbai-embed-large -> 1024
-      dimensions: 768
+      #   nomic-embed-text -> 768, mxbai-embed-large -> 1024, bge-m3 -> 1024
+      dimensions: 1024
