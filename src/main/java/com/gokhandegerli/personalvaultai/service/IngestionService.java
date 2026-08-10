@@ -10,12 +10,19 @@ import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -24,6 +31,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class IngestionService {
@@ -31,10 +39,13 @@ public class IngestionService {
     private static final Logger logger = LoggerFactory.getLogger(IngestionService.class);
 
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("md", "markdown", "docx");
+    private static final long INGEST_ADVISORY_LOCK_KEY = 725_001L;
 
     private final VectorStore vectorStore;
     private final AppProperties props;
+    private final ObjectProvider<DataSource> dataSource;
     private final TokenTextSplitter splitter;
+    private final ReentrantLock ingestLock = new ReentrantLock();
     private final AtomicInteger filesRead = new AtomicInteger();
     private final AtomicInteger chunksWritten = new AtomicInteger();
     private final AtomicInteger totalChunks = new AtomicInteger();
@@ -42,9 +53,10 @@ public class IngestionService {
     private final AtomicReference<String> state = new AtomicReference<>("idle");
     private final AtomicReference<String> currentFile = new AtomicReference<>("");
 
-    public IngestionService(VectorStore vectorStore, AppProperties props) {
+    public IngestionService(VectorStore vectorStore, AppProperties props, ObjectProvider<DataSource> dataSource) {
         this.vectorStore = vectorStore;
         this.props = props;
+        this.dataSource = dataSource;
         this.splitter = TokenTextSplitter.builder()
                 .withChunkSize(props.rag().chunkSize())
                 .withMinChunkSizeChars(200)
@@ -52,9 +64,21 @@ public class IngestionService {
     }
 
     public IngestResponse ingestAsync() {
-        if ("running".equals(state.get())) {
-            return new IngestResponse(storeType(), -1, -1, List.of("ingest zaten çalışıyor"));
+        if (!ingestLock.tryLock()) {
+            return alreadyRunning();
         }
+        DbAdvisoryLock advisoryLock;
+        try {
+            advisoryLock = acquireAdvisoryLock();
+        } catch (SQLException e) {
+            ingestLock.unlock();
+            throw new IllegalStateException("Failed to acquire ingest advisory lock", e);
+        }
+        if (advisoryLock == null) {
+            ingestLock.unlock();
+            return alreadyRunning();
+        }
+
         state.set("running");
         filesRead.set(0);
         chunksWritten.set(0);
@@ -63,8 +87,43 @@ public class IngestionService {
         Path root = resolveRoot();
         totalFiles.set(collectFiles(root).size());
 
-        CompletableFuture.runAsync(() -> runIngest(root));
+        CompletableFuture.runAsync(() -> {
+            try {
+                runIngest(root);
+            } finally {
+                advisoryLock.close();
+                ingestLock.unlock();
+            }
+        });
         return new IngestResponse(storeType(), 0, 0, List.of());
+    }
+
+    private IngestResponse alreadyRunning() {
+        return new IngestResponse(storeType(), -1, -1, List.of("ingest zaten çalışıyor"));
+    }
+
+    private DbAdvisoryLock acquireAdvisoryLock() throws SQLException {
+        DataSource ds = dataSource.getIfAvailable();
+        if (ds == null) {
+            return new DbAdvisoryLock(null);
+        }
+        Connection connection = ds.getConnection();
+        try {
+            try (PreparedStatement ps = connection.prepareStatement("SELECT pg_try_advisory_lock(?)")) {
+                ps.setLong(1, INGEST_ADVISORY_LOCK_KEY);
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    if (!rs.getBoolean(1)) {
+                        connection.close();
+                        return null;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            connection.close();
+            throw e;
+        }
+        return new DbAdvisoryLock(connection);
     }
 
     private void runIngest(Path root) {
@@ -206,5 +265,34 @@ public class IngestionService {
 
     private static String rel(Path root, Path file) {
         return root.relativize(file).toString().replace('\\', '/');
+    }
+
+    private static final class DbAdvisoryLock implements AutoCloseable {
+
+        private final Connection connection;
+
+        DbAdvisoryLock(Connection connection) {
+            this.connection = connection;
+        }
+
+        @Override
+        public void close() {
+            if (connection == null) {
+                return;
+            }
+            try {
+                try (Statement st = connection.createStatement()) {
+                    st.execute("SELECT pg_advisory_unlock(" + INGEST_ADVISORY_LOCK_KEY + ")");
+                }
+            } catch (SQLException e) {
+                logger.warn("Failed to release ingest advisory lock: {}", e.getMessage());
+            } finally {
+                try {
+                    connection.close();
+                } catch (SQLException ignored) {
+                    // ignore
+                }
+            }
+        }
     }
 }
