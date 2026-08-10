@@ -2,7 +2,7 @@
 
 Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen bir
 **RAG (Retrieval-Augmented Generation)** chatbot'u. Spring AI 2.0 + Spring Boot 4 üzerine kurulu;
-**embedding local Ollama'da** (`nomic-embed-text`), **chat OpenCode Zen'de** (ücretsiz `big-pickle`) çalışır;
+**embedding local Ollama'da** (`bge-m3`), **chat OpenCode Zen'de** (ücretsiz `big-pickle`) çalışır;
 üç farklı vector store arasında tek profil değiştirerek geçiş yapabilirsin.
 
 > Kısaca: `.vault` içindeki markdown notlarına soru sor. Cevap, yalnızca o notlardan çekilen
@@ -64,7 +64,7 @@ Kişisel Obsidian vault'undaki notları (`.vault/`) besleyen bir
   (soruyu vektöre çevirme). Zen'in ücretsiz modelleri yalnızca **chat** üretir, embedding üretemez.
 - Embedding'i de buluta taşırsan **vault'un tamamı** (tüm özel notlar) dışarıya embed edilmek üzere
   gönderilir. Local'de tutmak notları makineden çıkarmaz.
-- `nomic-embed-text` CPU'da rahat çalışır — ek GPU gerekmez.
+- `bge-m3` çok dilli embedding modelidir (EN + TR notlar için daha iyi eşleşme) ve CPU'da rahat çalışır — ek GPU gerekmez.
 - Zen'e giden tek şey: **soru + retrieve edilen birkaç chunk** (topK=6). Notların tamamı asla dışarı çıkmaz.
 
 ### Ollama hem LLM hem embedding çalıştırabilir
@@ -76,7 +76,7 @@ modeli de kurulur:
 | Model türü | Ne üretir | Örnekler | Bu projede |
 |---|---|---|---|
 | Chat modeli (LLM) | Metinden metin | `qwen2.5`, `llama3.2`, `deepseek-r1` | Kullanılmıyor — chat Zen'den geliyor |
-| Embedding modeli | Metinden vektör | `nomic-embed-text`, `all-minilm`, `mxbai-embed-large` | Embedding burada (local) |
+| Embedding modeli | Metinden vektör | `bge-m3` (1024), `nomic-embed-text`, `mxbai-embed-large` | Embedding burada (local) |
 
 İkisi de `ollama list`'te görünür; Ollama aynı anda birden çok model barındırır. Bu projede sadece
 embedding tarafı seçildi çünkü chat Zen'de ücretsiz geliyor. Chat'i de Ollama'ya taşımak istersen
@@ -92,7 +92,7 @@ spring:
       chat:
         model: llama3.2
       embedding:
-        model: nomic-embed-text
+        model: bge-m3
 ```
 
 > Chat'i Ollama'ya almak "daha yerel" olur ama CPU'da yavaştır (LLM GPU ister), Zen ise bulutta
@@ -143,8 +143,8 @@ UI: `src/main/resources/static/index.html` tarayıcıda açılır (`file://`), C
 # Linux/macOS: tek komut (sistem yöneticisi şifresi ister)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Embedding modeli (CPU'da çalışır; 768 boyutlu vektör üretir)
-ollama pull nomic-embed-text
+# Embedding modeli (CPU'da çalışır; 1024 boyutlu vektör üretir — TR+EN notlarda en iyi eşleşme)
+ollama pull bge-m3
 
 # Chat modeli Ollama'da çalışmaz — chat her zaman Zen (bulut) üzerinden gelir.
 # Servisin ayakta olduğunu kontrol et
@@ -185,13 +185,18 @@ mvn spring-boot:run -Ppgvector -Dspring-boot.run.profiles=pgvector   # pgvector 
 
 ```bash
 curl -X POST http://localhost:8080/api/ingest
-# {"storeType":"SimpleVectorStore","filesRead":156,"chunksWritten":995,"skipped":[]}
+# {"storeType":"PgVectorStore","filesRead":10,"totalFiles":166,"chunksWritten":1034,"state":"idle","skipped":[]}
 ```
 
 İndeksleme sırasında her chunk Ollama ile embedding'e çevrilir — CPU'da tek bir full-ingest
-~10-12 dk sürer (vault ~360K token, ~1000 chunk). `simple` profilde sonuç
+~19 dk sürer (vault ~360K token, ~1034 chunk). `simple` profilde sonuç
 `data/simple-vector-store.json` dosyasına kaydedilir; yeniden başlatınca otomatik yüklenir
 (tekrar indekslemene gerek yok).
+
+> **Concurrent ingest engellenir:** süreç içi `ReentrantLock` + PostgreSQL `pg_advisory_lock`.
+> Ingest çalışırken gelen ikinci istek `skipped: ["ingest zaten çalışıyor"]` döner — bu, eşzamanlı
+> iki ingest'in aynı kayıtları iki kez yazıp (eski hatada DB'de ~2x duplicate) eşleşmeyi bozmasını önler.
+> İlerleme `GET /api/stores` ile izlenir (`state`: `idle`/`reading`/`embedding`, `filesRead`, `chunksWritten`).
 
 ### 5) Soru sor
 
@@ -224,7 +229,7 @@ curl -N -X POST http://localhost:8080/api/chat/stream \
 
 ```bash
 curl http://localhost:8080/api/stores
-# {"storeType":"SimpleVectorStore","filesRead":156,"chunksWritten":995}
+# {"storeType":"PgVectorStore","filesRead":166,"chunksWritten":1034,"state":"idle"}
 ```
 
 ### 7) Feedback ile cevap düzelt (self-improvement)
@@ -305,8 +310,9 @@ curl -X POST http://localhost:8080/api/feedback \
 kıyasla. Hepsi aynı `VectorStore` arayüzünü kullandığı için kod değişmez.
 
 > **PGVector dims uyarısı:** `application-pgvector.yml` içindeki `app.vector-store.pgvector.dimensions`
-> embedding modelinin boyutuna uymalıdır: `nomic-embed-text` → 768, `mxbai-embed-large` → 1024.
-> Model değiştirirsen tabloyu yeniden kurmak gerekir (`docker-compose down -v`).
+> embedding modelinin boyutuna uymalıdır: `nomic-embed-text` → 768, `bge-m3` → 1024.
+> Model değiştirirsen tabloyu yeniden kurmak gerekir: ingest durdur, `DROP TABLE vector_store CASCADE`
+> (uygulama yeniden başlarken tabloyu ve HNSW index'i otomatik oluşturur), sonra tekrar ingest.
 
 ---
 
@@ -339,7 +345,7 @@ Chat isteğinde `sessionId` (`[A-Za-z0-9_-]`, 64 karakter) aynı konuşmayı tan
 | `app.rag.excluded-dirs` | `.git,.obsidian,.trash,temp,assets` | Atlanacak klasörler |
 | `app.rag.max-files` | `0` | `0`=hepsi; aksi halde ilk N dosya |
 | `spring.ai.ollama.base-url` | `http://localhost:11434` | Ollama adresi (env: `OLLAMA_BASE_URL`) |
-| `spring.ai.ollama.embedding.model` | `nomic-embed-text` | Embedding modeli (hazırlık + sorgu) |
+| `spring.ai.ollama.embedding.model` | `bge-m3` | Embedding modeli (hazırlık + sorgu; 1024 boyut) |
 | `spring.ai.openai.base-url` | `https://opencode.ai/zen/v1` | Zen endpoint (yalnız `zen` profili; env: `ZEN_BASE_URL`) |
 | `spring.ai.openai.chat.options.model` | `big-pickle` | Zen chat modeli (yalnız `zen` profili; env: `ZEN_CHAT_MODEL`) |
 | `app.vector-store.simple.file` | `data/simple-vector-store.json` | Simple store kalıcılık dosyası |
@@ -387,7 +393,7 @@ spring:
           model: big-pickle   # ücretsiz; env: ZEN_CHAT_MODEL
     ollama:
       embedding:
-        model: nomic-embed-text
+        model: bge-m3
 ```
 
 ```bash
