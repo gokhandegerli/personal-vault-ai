@@ -166,6 +166,9 @@ docker-compose up -d
 
 ### 3) Uygulamayı çalıştır
 
+> Öncelikle yukarıdaki "En hızlı yol: tmux + arka plan çalıştırma" bölümüne bak — aktif kurulum
+> (`pgvector,zen`) zaten orada. Aşağıdaki komutlar diğer profil kombinasyonları içindir.
+
 ```bash
 export JAVA_HOME=$HOME/.sdkman/candidates/java/25.0.3-tem
 mvn spring-boot:run            # varsayılan profil: simple
