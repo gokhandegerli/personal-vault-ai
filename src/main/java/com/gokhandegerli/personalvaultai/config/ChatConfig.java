@@ -2,11 +2,14 @@ package com.gokhandegerli.personalvaultai.config;
 
 import com.gokhandegerli.personalvaultai.advisor.CombinedQuestionAnswerAdvisor;
 import com.gokhandegerli.personalvaultai.service.CorrectionService;
+import com.gokhandegerli.personalvaultai.service.HybridRetriever;
+import com.gokhandegerli.personalvaultai.service.HybridSearchVectorStore;
 import com.gokhandegerli.personalvaultai.service.JsonChatMemory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -27,13 +30,19 @@ public class ChatConfig {
     @Bean
     ChatClient chatClient(ChatClient.Builder builder, VectorStore vectorStore,
                           CorrectionService correctionService, AppProperties props,
-                          JsonChatMemory chatMemory) {
+                          JsonChatMemory chatMemory,
+                          ObjectProvider<HybridRetriever> hybridRetrieverProvider) {
+        VectorStore vaultStore = vectorStore;
+        HybridRetriever hybridRetriever = hybridRetrieverProvider.getIfAvailable();
+        if (hybridRetriever != null) {
+            vaultStore = new HybridSearchVectorStore(vectorStore, hybridRetriever);
+        }
         return builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).order(10).build(),
                         new CombinedQuestionAnswerAdvisor(
-                                java.util.List.of(vectorStore, correctionService.store()),
+                                java.util.List.of(vaultStore, correctionService.store()),
                                 SearchRequest.builder()
                                         .topK(props.rag().topK())
                                         .build(),
