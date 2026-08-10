@@ -103,6 +103,33 @@ spring:
 
 ## Nasıl? (How)
 
+### En hızlı yol: tmux + arka plan çalıştırma
+
+Uygulama genelde bir tmux session'ında arka planda çalışır — terminali kapatınca ölmez, log'a bakarız.
+
+```bash
+# Başlat (arka planda, log /tmp/pva-boot.log'a)
+tmux new-session -d -s pva -c /home/gokhan-degerli/Documents/personal/personal-vault-ai \
+  "mvn -q spring-boot:run -Ppgvector -Dspring-boot.run.profiles=pgvector,zen > /tmp/pva-boot.log 2>&1"
+
+# Log canlı izle
+tmux attach -t pva
+
+# Hazır olma kontrolü (200 dönünce kullanılabilir)
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/conversations
+```
+
+**Restart** (kod değişince):
+
+```bash
+tmux kill-session -t pva      # durdur
+mvn -q compile                # değişikliği derle
+# yukarıdaki tmux başlatma komutunu tekrar çalıştır
+```
+
+Aktif kurulum: `pgvector,zen` profilleri (chat → OpenCode Zen ücretsiz, embedding → local Ollama).
+UI: `src/main/resources/static/index.html` tarayıcıda açılır (`file://`), CORS `/api/**` için yapılandırıldı.
+
 ### Gereksinimler
 
 - **Java 25** (sdkman: `sdk install java 25.0.3-tem`)
