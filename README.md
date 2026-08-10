@@ -189,9 +189,15 @@ curl -X POST http://localhost:8080/api/ingest
 ```
 
 İndeksleme sırasında her chunk Ollama ile embedding'e çevrilir — CPU'da tek bir full-ingest
-~19 dk sürer (vault ~360K token, ~1034 chunk). `simple` profilde sonuç
+~19 dk sürer (vault ~360K token, ~1064 chunk). `simple` profilde sonuç
 `data/simple-vector-store.json` dosyasına kaydedilir; yeniden başlatınca otomatik yüklenir
 (tekrar indekslemene gerek yok).
+
+> **Dizin index dokümanları:** ingest her dizin için sentetik bir "konu listesi" dokümanı üretir
+> (`isIndex: true`, source = dizin yolu; split'e girmez, tek doküman olarak embed edilir). Böylece
+> `"01 bolumu icin beni interview yapabilir misin?"` gibi **modül kapsamlı** sorgularda LLM tüm
+> konu listesini (örn. 01-01…01-41) görür ve gerçek içerik chunk'larına bağımlı kalmadan mülakat
+> yapabilir. Dizin dokümanları normal içerik sorgularını kirletmez (30/30 top-6 testi, regresyon yok).
 
 > **Concurrent ingest engellenir:** süreç içi `ReentrantLock` + PostgreSQL `pg_advisory_lock`.
 > Ingest çalışırken gelen ikinci istek `skipped: ["ingest zaten çalışıyor"]` döner — bu, eşzamanlı
@@ -322,6 +328,12 @@ lexeme'ler atlanır). Böylece **isimle referans veren** sorgular da bulunur —
 interview yapalim mi?"` artık `01-Summary.md`'yi getirir (saf vektörde bulunamıyordu). `search_vector`
 kolonu startup'ta otomatik oluşturulur (idempotent DDL), mevcut satırlar otomatik doldurulur —
 **re-ingest gerekmez.** Corrections store (SimpleVectorStore) saf vektörde kalır.
+
+**Modül kapsamlı sorgular (dizin index):** ingest sırasında üretilen `isIndex: true` dokümanları
+(her dizin için tam konu listesi) sayesinde `"01 bolumu icin beni interview yapabilir misin?"`
+tüm Core Java konularını (01-01…01-41) kapsayan mülakat başlatır; `"02 multithreading konulari icin
+interview yapalim mi?"` 02-00…02-18 listesini verir. Split'e girmezler, tek doküman olarak embed
+edilirler.
 
 > **PGVector dims uyarısı:** `application-pgvector.yml` içindeki `app.vector-store.pgvector.dimensions`
 > embedding modelinin boyutuna uymalıdır: `nomic-embed-text` → 768, `bge-m3` → 1024.
