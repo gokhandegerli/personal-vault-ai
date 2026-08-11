@@ -20,8 +20,16 @@ fi
 until curl -sf http://localhost:11434/api/version >/dev/null 2>&1; do sleep 1; done
 echo "      ollama ready"
 
+# shellcheck disable=SC1091
+# Compose: prefer docker compose (v2), fallback to docker-compose (v1)
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+else
+    COMPOSE=(docker-compose)
+fi
+
 echo "[2/4] Docker stores (pgvector + chroma)"
-docker compose up -d
+"${COMPOSE[@]}" up -d
 until [ "$(docker inspect -f '{{.State.Health.Status}}' pva-pgvector 2>/dev/null)" = "healthy" ]; do sleep 2; done
 echo "      stores ready"
 

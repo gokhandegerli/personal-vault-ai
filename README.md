@@ -103,7 +103,15 @@ spring:
 
 ## Nasıl? (How)
 
-### En hızlı yol: tmux + arka plan çalıştırma
+### En hızlı yol: tek komut
+
+Reboot sonrası dahil her şeyi ayağa kaldıran tek komut (Ollama → docker stores → app → HTTP 200):
+
+```bash
+./start.sh          # ya da alias: alias pva='.../start.sh' → sadece `pva`
+```
+
+### Arka plan / tmux + manuel restart
 
 Uygulama genelde bir tmux session'ında arka planda çalışır — terminali kapatınca ölmez, log'a bakarız.
 
