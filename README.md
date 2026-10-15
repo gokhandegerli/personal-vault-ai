@@ -30,7 +30,7 @@ selected by Spring profile — no code changes.
 | An LLM does not know your private documents | Documents are embedded into a vector store and supplied to the model as context |
 | Models hallucinate | Answers are constrained to retrieved context; without context the model says it does not know |
 | Retraining a model is expensive | RAG needs no training — knowledge lives in the storage layer |
-| Documents change constantly | `POST /api/ingest` re-indexes in place |
+| Documents change constantly | `POST /api/admin/ingest` re-indexes in place |
 | Private data should not be shipped to a vendor | Embeddings run locally; only the question and the retrieved chunks reach the chat model |
 | Answers must be auditable | Every response returns the source files it was built from |
 
@@ -93,7 +93,7 @@ mvn spring-boot:run -Ppgvector -Dspring-boot.run.profiles=pgvector
 Point the service at your documents with `VAULT_PATH` (default `../.vault`), then index and ask:
 
 ```bash
-curl -X POST localhost:8080/api/ingest
+curl -X POST localhost:8080/api/admin/ingest
 # {"storeType":"PgVectorStore","filesRead":166,"chunksWritten":1034,"state":"idle"}
 
 curl -X POST localhost:8080/api/chat \
@@ -114,11 +114,11 @@ A minimal web UI with streaming and conversation history lives at
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/ingest` | Scan, chunk, embed and store the configured document root |
+| `POST` | `/api/admin/ingest` | Scan, chunk, embed and store the configured document root |
 | `POST` | `/api/chat` | `{"message":"...","sessionId":"..."}` → `{answer, sources[]}` |
 | `POST` | `/api/chat/stream` | Same, as an SSE token stream (`text/event-stream`) |
 | `POST` | `/api/feedback` | Submit a corrected answer → stored in a separate correction store |
-| `GET` | `/api/stores` | Active store type and index statistics / ingest progress |
+| `GET` | `/api/admin/stores` | Active store type and index statistics / ingest progress |
 | `GET` | `/api/conversations` | Conversation list |
 | `GET` | `/api/conversations/{id}` | Messages of one conversation, with sources |
 | `DELETE` | `/api/conversations/{id}` | Delete a conversation |

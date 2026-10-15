@@ -42,7 +42,7 @@ public class AiController {
         this.chatMemory = chatMemory;
     }
 
-    @PostMapping("/ingest")
+    @PostMapping("/admin/ingest")
     public IngestResponse ingest() {
         return ingestionService.ingest();
     }
@@ -65,7 +65,7 @@ public class AiController {
         return chatService.stream(message, request.sessionId());
     }
 
-    @GetMapping("/stores")
+    @GetMapping("/admin/stores")
     public Map<String, Object> stores() {
         return ingestionService.stats();
     }

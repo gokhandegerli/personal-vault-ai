@@ -409,7 +409,7 @@
                 async ingest() {
                     this.busy.ingest = true;
                     try {
-                        await fetch(API + '/api/ingest', { method: 'POST' });
+                        await fetch(API + '/api/admin/ingest', { method: 'POST' });
                         this.showToast('Index başladı...');
                         this.pollIngest();
                     } catch (e) {
@@ -445,7 +445,7 @@
                 },
                 async loadStats() {
                     try {
-                        const res = await fetch(API + '/api/stores');
+                        const res = await fetch(API + '/api/admin/stores');
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         this.stats = await res.json();
                         if (this.stats && ['reading', 'embedding'].includes(this.stats.state)) {
