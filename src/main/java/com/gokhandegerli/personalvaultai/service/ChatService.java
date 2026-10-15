@@ -8,7 +8,6 @@ import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvi
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.UUID;
@@ -51,15 +50,6 @@ public class ChatService {
         chatMemory.attachSources(conversationId, sources);
 
         return new ChatResponse(answer, sources);
-    }
-
-    public Flux<String> stream(String message, String sessionId) {
-        String conversationId = conversationId(sessionId);
-        return chatClient.prompt()
-                .user(message)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
-                .stream()
-                .content();
     }
 
     private String conversationId(String sessionId) {

@@ -11,7 +11,6 @@ import com.gokhandegerli.personalvaultai.service.ChatService;
 import com.gokhandegerli.personalvaultai.service.CorrectionService;
 import com.gokhandegerli.personalvaultai.service.IngestionService;
 import com.gokhandegerli.personalvaultai.service.JsonChatMemory;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,7 +19,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -54,15 +52,6 @@ public class AiController {
             return ResponseEntity.badRequest().build();
         }
         return ResponseEntity.ok(chatService.ask(message, request.sessionId()));
-    }
-
-    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> stream(@RequestBody ChatRequest request) {
-        String message = request.message();
-        if (message == null || message.isBlank()) {
-            return Flux.error(new IllegalArgumentException("message must not be blank"));
-        }
-        return chatService.stream(message, request.sessionId());
     }
 
     @GetMapping("/admin/stores")

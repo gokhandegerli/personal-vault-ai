@@ -105,7 +105,7 @@ curl -X POST localhost:8080/api/chat \
 `./start.sh` does all of the above in one command (starts Ollama if needed, waits for the
 stores to report healthy, launches the app in a `tmux` session, waits for HTTP 200).
 
-A minimal web UI with streaming and conversation history lives at
+A minimal web UI with conversation history lives at
 `src/main/resources/static/index.html`.
 
 ---
@@ -116,7 +116,6 @@ A minimal web UI with streaming and conversation history lives at
 |---|---|---|
 | `POST` | `/api/admin/ingest` | Scan, chunk, embed and store the configured document root |
 | `POST` | `/api/chat` | `{"message":"...","sessionId":"..."}` → `{answer, sources[]}` |
-| `POST` | `/api/chat/stream` | Same, as an SSE token stream (`text/event-stream`) |
 | `POST` | `/api/feedback` | Submit a corrected answer → stored in a separate correction store |
 | `GET` | `/api/admin/stores` | Active store type and index statistics / ingest progress |
 | `GET` | `/api/conversations` | Conversation list |
@@ -184,7 +183,7 @@ src/main/java/com/gokhandegerli/personalvaultai/
 ├── service/      IngestionService (ETL), ChatService, CorrectionService,
 │                 HybridRetriever, HybridSearchVectorStore, JsonChatMemory
 ├── dto/          request/response records
-└── web/          AiController (REST + SSE)
+└── web/          AiController (REST)
 
 src/pgvector/     profile-scoped sources: HybridSearchService (FTS + RRF),
                   PgVectorStoreConfig, PgVectorSearchIndexInitializer (startup DDL)
@@ -203,7 +202,7 @@ src/pgvector/     profile-scoped sources: HybridSearchService (FTS + RRF),
 ## Roadmap
 
 - [x] End-to-end RAG over three vector stores, profile-selected
-- [x] SSE streaming, conversation history, feedback/correction loop
+- [x] Conversation history, feedback/correction loop
 - [x] Hybrid search (vector + full text, RRF)
 - [x] Directory index documents for module-scoped questions
 - [ ] Metadata filters (restrict search to a subtree)
