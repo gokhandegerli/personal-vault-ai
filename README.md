@@ -207,4 +207,4 @@ src/pgvector/     profile-scoped sources: HybridSearchService (FTS + RRF),
 - [x] Directory index documents for module-scoped questions
 - [ ] Metadata filters (restrict search to a subtree)
 - [ ] Filesystem watch / automatic re-ingest
-- [ ] Expose as an MCP server (Spring AI 2.0 MCP)
+- [ ] Expose as an MCP server (Spring AI 2.0 MCP starters) — candidate tools: `vault_search`, `vault_ask`, `conversation_list/get`, `vault_reingest`; transport: stdio for local clients, `localhost` webmvc for remote; gate admin tools (no auth today)
